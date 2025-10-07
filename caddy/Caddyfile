@@ -1,0 +1,41 @@
+# Local development: serve HTTPS on localhost using provided certificates
+# Access via https://localhost:9443
+localhost {
+  # Use Caddy's internal CA for local HTTPS (no mkcert needed)
+  tls internal
+
+  # Proxy API requests to FastAPI (preserve scheme/host so redirects/CORS are correct)
+  reverse_proxy /api/* http://filemanager:8000 {
+    header_up Host {host}
+    header_up X-Forwarded-Proto https
+  }
+
+  # Serve the Next.js dev server through Caddy so the app and API share the same https origin
+  reverse_proxy /_next/* http://host.docker.internal:3000
+  reverse_proxy / http://host.docker.internal:3000
+  reverse_proxy /favicon.ico http://host.docker.internal:3000
+
+  # MinIO Console at https://localhost:9443/console
+  handle_path /console/* {
+    uri strip_prefix /console
+    reverse_proxy http://minio:9090
+  }
+
+
+  reverse_proxy minio:9000 {
+    # Preserve host and port for S3 signature verification
+    header_up Host {hostport}
+    header_up X-Forwarded-Proto https
+
+    # Stream large uploads/downloads (S3 semantics)
+    flush_interval -1
+  }
+}
+
+
+# Explicit HTTP listener that redirects to the exposed HTTPS port 9443
+:80 {
+  redir https://localhost:9443{uri} permanent
+}
+
+
