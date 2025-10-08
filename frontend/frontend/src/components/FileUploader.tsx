@@ -3,20 +3,18 @@
 import { useState, ChangeEvent, useRef } from 'react';
 import { FileData } from '../types';
 
-// Define the structure of the API responses
+// API models
 interface UploadInitResponse {
   data: {
     chunk_size: number;
     upload_id: string;
   };
 }
-
 interface SuccessResponse<T> {
   data: T;
   success: boolean;
   message?: string;
 }
-
 interface UploadCompleteResponse {
   id: string;
   path: string;
@@ -33,9 +31,35 @@ interface FileUploaderProps {
   onUploadComplete: () => void;
 }
 
-const API_BASE_URL = '/api/v1/file';
+/** Build base URL from .env (NEXT_PUBLIC_API_ORIGIN). Fallback to window.origin in dev. */
+const API_ORIGIN = (
+  process.env.NEXT_PUBLIC_API_ORIGIN ||
+  (typeof window !== 'undefined' ? window.location.origin : '')
+).replace(/\/+$/, '');
+const API_BASE_URL = `${API_ORIGIN}/api/v1/file`;
 
-export default function FileUploader({ appointmentId, userId, onUploadSuccess, onUploadComplete }: FileUploaderProps) {
+/** Read response once, parse JSON if possible, else return plain text */
+async function readJsonSafe(res: Response) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text || null;
+  }
+}
+
+/** Derive a safe extension for the backend enum; fallback to 'bin' */
+function getSafeExtension(name: string) {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return ext || 'bin';
+}
+
+export default function FileUploader({
+  appointmentId,
+  userId,
+  onUploadSuccess,
+  onUploadComplete,
+}: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('Click or drag to select a file');
@@ -66,14 +90,21 @@ export default function FileUploader({ appointmentId, userId, onUploadSuccess, o
     setVirusWarning(null);
 
     try {
-      // 1. Initialize Upload
+      // 1) Init
       setStatus('Initializing upload...');
-      const initResponse = await fetch(`${API_BASE_URL}/upload/init/`, { method: 'POST' });
-      if (!initResponse.ok) throw new Error('Failed to initialize upload.');
-      const initJson: UploadInitResponse = await initResponse.json();
+      const initRes = await fetch(`${API_BASE_URL}/upload/init/`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (!initRes.ok) {
+        const body = await readJsonSafe(initRes);
+        throw new Error(typeof body === 'string' ? body : 'Failed to initialize upload.');
+      }
+      const initJson = (await readJsonSafe(initRes)) as UploadInitResponse;
       const { chunk_size, upload_id } = initJson.data;
 
-      // 2. Upload Chunks
+      // 2) Chunks
       const totalChunks = Math.ceil(file.size / chunk_size);
       for (let i = 0; i < totalChunks; i++) {
         const start = i * chunk_size;
@@ -85,73 +116,79 @@ export default function FileUploader({ appointmentId, userId, onUploadSuccess, o
         formData.append('upload_id', upload_id);
         formData.append('chunk_index', i.toString());
         formData.append('file', chunk, file.name);
-        
+
         setStatus(`Uploading chunk ${i + 1} of ${totalChunks}...`);
-        
-        const chunkResponse = await fetch(`${API_BASE_URL}/upload/chunk/`, {
+
+        const chunkRes = await fetch(`${API_BASE_URL}/upload/chunk/`, {
           method: 'POST',
           body: formData,
         });
 
-        if (!chunkResponse.ok) {
-           const errorData = await chunkResponse.json();
-           throw new Error(`Failed to upload chunk ${i + 1}: ${errorData.message || 'Unknown error'}`);
+        if (!chunkRes.ok) {
+          const body = await readJsonSafe(chunkRes);
+          const msg =
+            typeof body === 'string'
+              ? body
+              : (body && (body as any).message) || `Failed to upload chunk ${i + 1}`;
+          throw new Error(msg);
         }
-        
+
         setProgress(Math.round(((i + 1) / totalChunks) * 100));
       }
 
-      // 3. Complete Upload
+      // 3) Complete
       setStatus('Completing upload...');
-      const completeFormData = new FormData();
-      const fileExtension = file.name.split('.').pop() || '';
-      completeFormData.append('upload_id', upload_id);
-      completeFormData.append('total_chunks', totalChunks.toString());
-      completeFormData.append('total_size', file.size.toString());
-      completeFormData.append('file_extension', fileExtension);
-      completeFormData.append('content_type', file.type);
-      completeFormData.append('appointment_id', appointmentId);
-      completeFormData.append('user_id', userId);
-      completeFormData.append('filename', file.name);
-      
-      const completeResponse = await fetch(`${API_BASE_URL}/upload/complete/`, {
+      const completeForm = new FormData();
+      const fileExtension = getSafeExtension(file.name);
+      completeForm.append('upload_id', upload_id);
+      completeForm.append('total_chunks', totalChunks.toString());
+      completeForm.append('total_size', file.size.toString());
+      completeForm.append('file_extension', fileExtension);
+      completeForm.append('content_type', file.type || 'application/octet-stream');
+      completeForm.append('appointment_id', appointmentId);
+      completeForm.append('user_id', userId);
+      completeForm.append('filename', file.name);
+
+      const completeRes = await fetch(`${API_BASE_URL}/upload/complete/`, {
         method: 'POST',
-        body: completeFormData,
+        body: completeForm,
       });
 
-      if (!completeResponse.ok) {
-        // Try to parse the error response
-        try {
-          const errorData = await completeResponse.json();
-          const errorMessage = errorData.message || errorData.errors?.[0] || 'Failed to complete upload.';
-          throw new Error(errorMessage);
-        } catch (parseError) {
-          // If we can't parse the error response, use a generic message
-          throw new Error('Failed to complete upload.');
-        }
+      if (!completeRes.ok) {
+        const body = await readJsonSafe(completeRes);
+        const msg =
+          typeof body === 'string'
+            ? body
+            : (body && ((body as any).message || (body as any).errors?.[0])) ||
+              'Failed to complete upload.';
+        throw new Error(msg);
       }
 
-      const completeJson: SuccessResponse<UploadCompleteResponse> = await completeResponse.json();
-      
+      const completeJson = (await readJsonSafe(completeRes)) as SuccessResponse<UploadCompleteResponse>;
+      const data = completeJson.data;
+
       const newFileData: FileData = {
-          id: completeJson.data.id,
-          filename: completeJson.data.filename,
-          content_type: completeJson.data.content_type,
-          size: completeJson.data.size,
-          download_url: completeJson.data.download_url
+        id: data.id,
+        filename: data.filename,
+        content_type: data.content_type,
+        size: data.size,
+        download_url: data.download_url,
       };
 
       setUploadedFile(newFileData);
       setStatus('Upload successful! Your file is being processed.');
       onUploadSuccess(newFileData);
       onUploadComplete();
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
-      
-      // Check if this is a virus detection error
-      if (errorMessage.toLowerCase().includes('virus') || errorMessage.toLowerCase().includes('malware') || errorMessage.toLowerCase().includes('infected')) {
-        setVirusWarning('⚠️ A virus has been detected in the file you have attempted to upload. The file has been quarantined for security.');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      if (
+        errorMessage.toLowerCase().includes('virus') ||
+        errorMessage.toLowerCase().includes('malware') ||
+        errorMessage.toLowerCase().includes('infected')
+      ) {
+        setVirusWarning(
+          '⚠️ A virus has been detected in the file you have attempted to upload. The file has been quarantined for security.'
+        );
         setStatus('File rejected due to security concerns.');
       } else {
         setStatus(`Error: ${errorMessage}`);
@@ -174,7 +211,7 @@ export default function FileUploader({ appointmentId, userId, onUploadSuccess, o
         disabled={isUploading}
       />
 
-      <div 
+      <div
         className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         onClick={triggerFileSelect}
       >
@@ -196,7 +233,7 @@ export default function FileUploader({ appointmentId, userId, onUploadSuccess, o
           <div
             className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
-          ></div>
+          />
         </div>
       )}
 
