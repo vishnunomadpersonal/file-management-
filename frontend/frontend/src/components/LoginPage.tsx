@@ -3,7 +3,19 @@
 import { useState, useEffect } from 'react';
 import { User } from '../types';
 
-const USERS_API_URL = '/api/v1/users/';
+/**
+ * Build absolute URLs from .env:
+ *   NEXT_PUBLIC_API_ORIGIN=https://localhost:9443   (recommended)
+ * Falls back to window.location.origin.
+ * Strip trailing slashes to keep paths clean.
+ */
+const ORIGIN =
+  (process.env.NEXT_PUBLIC_API_ORIGIN || (typeof window !== 'undefined' ? window.location.origin : ''))
+    .replace(/\/+$/, '');
+
+// Base (no trailing slash) + explicit collection URL (with trailing slash) to avoid FastAPI 308s.
+const USERS_API_BASE = `${ORIGIN}/api/v1/users`;
+const USERS_LIST_URL = `${USERS_API_BASE}/`; // collection endpoint
 
 interface LoginPageProps {
   onUserSelect: (user: User) => void;
@@ -12,36 +24,81 @@ interface LoginPageProps {
 export default function LoginPage({ onUserSelect }: LoginPageProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [newUserName, setNewUserName] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Helpful warning if you accidentally open http://localhost:3000 instead of the Caddy URL
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.origin !== ORIGIN) {
+      console.warn(
+        `[LoginPage] App origin (${window.location.origin}) != API origin (${ORIGIN}). ` +
+        `For no-CORS dev, open the app at ${ORIGIN} so UI+API share the same origin.`
+      );
+    }
+  }, []);
+
+  const parseJsonSafe = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error(text || `Non-JSON response (status ${res.status})`);
+    }
+  };
 
   const fetchUsers = async () => {
+    setLoading(true);
     try {
-      console.log('USERS_API_URL =', USERS_API_URL);
-      const response = await fetch(USERS_API_URL);
-      const result = await response.json();
-      if (result.success) {
+      console.log('USERS_LIST_URL =', USERS_LIST_URL);
+      const res = await fetch(`${USERS_LIST_URL}?t=${Date.now()}`, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`GET /users failed: ${res.status} ${errText}`);
+      }
+
+      const result = await res.json();
+      if (result?.success) {
         setUsers(result.data);
+      } else {
+        console.warn('GET /users returned unexpected payload:', result);
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCreateUser = async () => {
     if (!newUserName.trim()) return;
+
     try {
-      const response = await fetch(USERS_API_URL, {
+      const res = await fetch(USERS_LIST_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newUserName }),
+        body: JSON.stringify({ name: newUserName.trim() }),
       });
-      const result = await response.json();
-      if (result.success) {
-        setUsers([...users, result.data]);
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`POST /users failed: ${res.status} ${body}`);
+      }
+
+      const result = await parseJsonSafe(res);
+      if (result?.success) {
+        setUsers((prev) => [...prev, result.data]);
         setNewUserName('');
+      } else {
+        console.warn('POST /users returned unexpected payload:', result);
       }
     } catch (error) {
       console.error('Failed to create user:', error);
@@ -49,17 +106,18 @@ export default function LoginPage({ onUserSelect }: LoginPageProps) {
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user and all their data?')) {
-      return;
-    }
-    
+    if (!confirm('Are you sure you want to delete this user and all their data?')) return;
+
     try {
-      const response = await fetch(`${USERS_API_URL}/${userId}`, {
-        method: 'DELETE',
-      });
-      if (response.ok) {
-        setUsers(users.filter(user => user.id !== userId));
+      // Use the base (no trailing slash) for item routes
+      const res = await fetch(`${USERS_API_BASE}/${userId}`, { method: 'DELETE' });
+
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`DELETE /users/${userId} failed: ${res.status} ${body}`);
       }
+
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
     } catch (error) {
       console.error('Failed to delete user:', error);
     }
@@ -80,21 +138,28 @@ export default function LoginPage({ onUserSelect }: LoginPageProps) {
 
           <div className="space-y-4 mb-8">
             <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Users</h2>
-            {users.length > 0 ? (
+
+            {loading ? (
+              <p className="text-center text-gray-500 dark:text-gray-400 py-8">Loading users…</p>
+            ) : users.length > 0 ? (
               <div className="space-y-3">
                 {users.map((user) => (
                   <div
                     key={user.id}
                     className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 border-l-4 border-transparent hover:border-blue-500 rounded-lg transition-all duration-200 ease-in-out"
                   >
-                    <div 
+                    <div
                       onClick={() => onUserSelect(user)}
                       className="flex-1 cursor-pointer"
                     >
-                      <p className="font-semibold text-lg text-gray-800 dark:text-white">{user.name}</p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Created: {new Date(user.created_at).toLocaleDateString()}
+                      <p className="font-semibold text-lg text-gray-800 dark:text-white">
+                        {user.name}
                       </p>
+                      {user.created_at && (
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          Created: {new Date(user.created_at).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={(e) => {
@@ -110,12 +175,16 @@ export default function LoginPage({ onUserSelect }: LoginPageProps) {
                 ))}
               </div>
             ) : (
-              <p className="text-center text-gray-500 dark:text-gray-400 py-8">No users found. Create one to get started.</p>
+              <p className="text-center text-gray-500 dark:text-gray-400 py-8">
+                No users found. Create one to get started.
+              </p>
             )}
           </div>
 
           <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
-            <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-4">Create New User</h3>
+            <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-4">
+              Create New User
+            </h3>
             <div className="flex space-x-3">
               <input
                 type="text"
@@ -123,7 +192,7 @@ export default function LoginPage({ onUserSelect }: LoginPageProps) {
                 onChange={(e) => setNewUserName(e.target.value)}
                 placeholder="Enter user name"
                 className="flex-grow px-4 py-2 text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md focus:border-blue-500 focus:ring-blue-500 focus:outline-none focus:ring focus:ring-opacity-40"
-                onKeyPress={(e) => e.key === 'Enter' && handleCreateUser()}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateUser()}
               />
               <button
                 onClick={handleCreateUser}
