@@ -5,9 +5,23 @@ import FileDashboard from '../components/FileDashboard';
 import LoginPage from '../components/LoginPage';
 import { Appointment, FileData, User } from '../types';
 
-// Use same-origin relative URLs so requests go through the Caddy origin
-const APPOINTMENTS_API_URL = '/api/v1/appointments/';
-const FILES_API_URL = '/api/v1/file/all';
+// Build from .env (trim trailing slashes). Keep original paths as-is.
+const API_ORIGIN = (
+  process.env.NEXT_PUBLIC_API_ORIGIN ||
+  (typeof window !== 'undefined' ? window.location.origin : '')
+).replace(/\/+$/, '');
+
+const APPOINTMENTS_API_URL = `${API_ORIGIN}/api/v1/appointments/`; // note trailing slash
+const FILES_API_URL = `${API_ORIGIN}/api/v1/file/all`;             // no trailing slash
+
+async function parseJsonSafe(res: Response) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text || null;
+  }
+}
 
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -19,10 +33,25 @@ export default function Home() {
   const fetchAppointments = async () => {
     if (!currentUser) return;
     try {
-      const response = await fetch(`${APPOINTMENTS_API_URL}?user_id=${currentUser.id}`);
-      const result = await response.json();
-      if (result.success) {
-        setAppointments(result.data);
+      const url = `${APPOINTMENTS_API_URL}?user_id=${encodeURIComponent(currentUser.id)}&t=${Date.now()}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+
+      if (!response.ok) {
+        const body = await parseJsonSafe(response);
+        throw new Error(`GET /appointments ${response.status} ${typeof body === 'string' ? body : ''}`);
+      }
+
+      const result = await parseJsonSafe(response);
+      if (Array.isArray(result)) {
+        setAppointments(result as Appointment[]);
+      } else if (result?.success && Array.isArray(result.data)) {
+        setAppointments(result.data as Appointment[]);
+      } else {
+        setAppointments([]);
       }
     } catch (error) {
       console.error('Failed to fetch appointments:', error);
@@ -32,10 +61,25 @@ export default function Home() {
   const fetchAllFiles = async () => {
     if (!currentUser) return;
     try {
-      const response = await fetch(`${FILES_API_URL}?user_id=${currentUser.id}`);
-      const result = await response.json();
-      if (result.success) {
-        setAllFiles(result.data);
+      const url = `${FILES_API_URL}?user_id=${encodeURIComponent(currentUser.id)}&t=${Date.now()}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+
+      if (!response.ok) {
+        const body = await parseJsonSafe(response);
+        throw new Error(`GET /file/all ${response.status} ${typeof body === 'string' ? body : ''}`);
+      }
+
+      const result = await parseJsonSafe(response);
+      if (Array.isArray(result)) {
+        setAllFiles(result as FileData[]);
+      } else if (result?.success && Array.isArray(result.data)) {
+        setAllFiles(result.data as FileData[]);
+      } else {
+        setAllFiles([]);
       }
     } catch (error) {
       console.error('Failed to fetch all files:', error);
@@ -43,12 +87,14 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!API_ORIGIN) console.warn('NEXT_PUBLIC_API_ORIGIN is empty!');
     if (currentUser) {
       fetchAppointments();
       fetchAllFiles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
-  
+
   const handleCreateAppointment = async () => {
     if (!newAppointmentName.trim() || !currentUser) return;
     try {
@@ -57,10 +103,20 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newAppointmentName, user_id: currentUser.id }),
       });
-      const result = await response.json();
-      if (result.success) {
-        setAppointments([...appointments, result.data]);
-        setNewAppointmentName(''); // Clear input
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`POST /appointments ${response.status} ${body}`);
+      }
+
+      const result = await parseJsonSafe(response);
+      const newAppt =
+        (result?.success && result.data) ? result.data :
+        (result && !result.success ? null : result);
+
+      if (newAppt) {
+        setAppointments((prev) => [...prev, newAppt as Appointment]);
+        setNewAppointmentName('');
       }
     } catch (error) {
       console.error('Failed to create appointment:', error);
@@ -88,18 +144,20 @@ export default function Home() {
     if (!confirm('Are you sure you want to delete this appointment and all its files?')) {
       return;
     }
-    
+
     try {
-      const response = await fetch(`${APPOINTMENTS_API_URL}/${appointmentId}`, {
-        method: 'DELETE',
-      });
-      const result = await response.json();
-      if (result.success || response.ok) {
-        // Remove the appointment from the local state
-        setAppointments(appointments.filter(appt => appt.id !== appointmentId));
-        // Refresh the files list to remove any files from the deleted appointment
-        fetchAllFiles();
+      // APPOINTMENTS_API_URL already ends with '/', so don't add another
+      const url = `${APPOINTMENTS_API_URL}${appointmentId}`;
+      const response = await fetch(url, { method: 'DELETE' });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`DELETE /appointments/${appointmentId} ${response.status} ${body}`);
       }
+
+      // Many backends return 204; skip parsing and update local state
+      setAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
+      fetchAllFiles();
     } catch (error) {
       console.error('Failed to delete appointment:', error);
     }
