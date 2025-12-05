@@ -1,0 +1,131 @@
+services:
+
+  filemanager:
+    build:
+      dockerfile: Dockerfile
+      context: .
+    container_name: filemanager
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./src:/var/www"
+    networks:
+      - filemanager
+    depends_on:
+      db-mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9001:9000" # api port - should not be exposed on production
+      - "9090:9090" # console port
+    volumes:
+      - minio_data:/data #using named volume
+    env_file:
+      - .env
+    command: server --console-address ":9090" /data
+    networks:
+      - filemanager
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    depends_on:
+      - minio
+    ports:
+      - "80:80"      # HTTP (redirects to HTTPS). Fixes stray http://localhost requests
+      - "9443:443"   # HTTPS for local dev
+      - "9080:80"    # HTTP (redirects to HTTPS by default)
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data  # persist Caddy data (includes local CA)
+    networks:
+      - filemanager
+
+  db-mysql:
+    image: mysql:8.0
+    container_name: mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - mysql_data:/var/lib/mysql/ #using named volume
+      - ./src/infrastructure/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - 3307:3306 # Dont expose ports on production, changed to 3307 from 3306 for local development
+    networks:
+      - filemanager
+    healthcheck:
+        #test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-u${MYSQL_USER}", "-p${MYSQL_PASSWORD}"] 
+        test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]       
+        interval: 10s
+        timeout: 10s
+        retries: 5
+        start_period: 30s
+
+  rabbitmq:
+    image: rabbitmq
+    container_name: rabbitmq
+    env_file:
+      - .env
+    ports:
+      - "5672:5672"   # RabbitMQ main port
+      - "15672:15672" # RabbitMQ management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq #using named volume
+    networks:
+      - filemanager
+  
+  clamav:
+    image: clamav/clamav:latest
+    container_name: clamav
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    environment:
+      - CLAMAV_NO_FRESHCLAMD=false
+    networks:
+      - filemanager
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # ClamAV takes time to download virus definitions
+
+  clamav-rest:
+    build:
+      context: ./clamav-rest
+      dockerfile: Dockerfile
+    container_name: clamav-rest
+    ports:
+      - "9002:3000"
+    environment:
+      - CLAMD_HOST=clamav
+      - CLAMD_PORT=3310
+    networks:
+      - filemanager
+    depends_on:
+      clamav:
+        condition: service_healthy
+    restart: unless-stopped
+
+# Define the named volumes at the bottom of the file
+volumes:
+  mysql_data:
+  minio_data:
+  rabbitmq_data:
+  clamav_data: 
+  caddy_data:
+
+networks:
+  filemanager:
+    driver: bridge

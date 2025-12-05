@@ -1,0 +1,7 @@
+this is a clean file (no virus :-))
+
+use this cmd to test scan endpoint:
+
+eicar is a virus
+
+"curl -X POST -F "file=@test_clean.txt" http://localhost:9002/scan "
