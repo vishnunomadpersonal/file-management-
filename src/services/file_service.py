@@ -22,8 +22,12 @@ import logging
 import traceback
 from datetime import datetime
 from urllib.parse import quote
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+# Flag to enable/disable ML pipeline auto-trigger
+ML_PIPELINE_ENABLED = os.environ.get('ML_PIPELINE_ENABLED', 'true').lower() == 'true'
 
 class FileService(BaseService[FileRepo]):
     def __init__(self, repo: FileRepo) -> None:
@@ -205,6 +209,10 @@ class FileService(BaseService[FileRepo]):
             file = self.repo.create_file(file_dto)
             logger.info(f"File record created successfully with ID: {file.id}")
             
+            # Auto-trigger ML pipeline for data files (async, non-blocking)
+            if not is_quarantined:
+                asyncio.create_task(self._trigger_ml_pipeline(file))
+            
             return file
 
         except VirusDetectedException:
@@ -324,3 +332,33 @@ class FileService(BaseService[FileRepo]):
         upload_file_task.apply_async(
             args=meta['args'], kwargs=meta['kwargs'], task_id=file.celery_task_id)
         return file
+
+    async def _trigger_ml_pipeline(self, file: File) -> Optional[Dict[str, Any]]:
+        """
+        Auto-trigger the incremental ML pipeline for data files.
+        
+        This is the key integration point that connects file uploads
+        to the intelligent incremental ML pipeline.
+        """
+        if not ML_PIPELINE_ENABLED:
+            logger.debug("ML Pipeline is disabled, skipping auto-trigger")
+            return None
+        
+        try:
+            from services.pipeline_orchestrator import PipelineOrchestrator
+            
+            orchestrator = PipelineOrchestrator(self.repo.db)
+            result = await orchestrator.on_file_uploaded(file)
+            
+            if result:
+                logger.info(f"ML Pipeline triggered for file {file.id}: {result.get('status')}")
+            
+            return result
+            
+        except ImportError as e:
+            logger.warning(f"Pipeline orchestrator not available: {e}")
+            return None
+        except Exception as e:
+            # Don't fail the upload if pipeline fails
+            logger.error(f"ML Pipeline error (non-fatal): {e}")
+            return None

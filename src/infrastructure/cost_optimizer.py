@@ -420,10 +420,10 @@ class CostBasedOptimizer:
         """
         # Calculate estimation errors
         time_error = (actual.get('time_seconds', estimated.estimated_time_seconds) - 
-                     estimated.estimated_time_seconds) / estimated.estimated_time_seconds
+                     estimated.estimated_time_seconds) / max(estimated.estimated_time_seconds, 0.1)
         
         memory_error = (actual.get('memory_mb', estimated.estimated_memory_mb) - 
-                       estimated.estimated_memory_mb) / estimated.estimated_memory_mb
+                       estimated.estimated_memory_mb) / max(estimated.estimated_memory_mb, 1.0)
         
         # Update coefficients with exponential moving average
         alpha = 0.1  # Learning rate
@@ -432,10 +432,156 @@ class CostBasedOptimizer:
         self.time_coefficients[strategy]['base'] *= (1 + alpha * time_error)
         self.memory_coefficients[strategy]['base'] *= (1 + alpha * memory_error)
         
+        # Record for history
+        self._record_calibration(strategy, estimated, actual)
+        
         logger.info(
             f"Updated cost model for {strategy.value}: "
             f"time_error={time_error:.2%}, memory_error={memory_error:.2%}"
         )
+    
+    def _record_calibration(
+        self,
+        strategy: ProcessingStrategy,
+        estimated: CostEstimate,
+        actual: Dict[str, Any]
+    ):
+        """Record calibration data for analysis."""
+        if not hasattr(self, 'calibration_history'):
+            self.calibration_history = []
+        
+        self.calibration_history.append({
+            'strategy': strategy.value,
+            'estimated_time': estimated.estimated_time_seconds,
+            'actual_time': actual.get('time_seconds', 0),
+            'estimated_memory': estimated.estimated_memory_mb,
+            'actual_memory': actual.get('memory_mb', 0),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+        # Keep last 200 records
+        if len(self.calibration_history) > 200:
+            self.calibration_history = self.calibration_history[-200:]
+    
+    def get_calibration_stats(self) -> Dict[str, Any]:
+        """Get calibration statistics for monitoring."""
+        if not hasattr(self, 'calibration_history') or not self.calibration_history:
+            return {'message': 'No calibration data yet'}
+        
+        stats = {}
+        for strategy in ProcessingStrategy:
+            strategy_data = [
+                c for c in self.calibration_history 
+                if c['strategy'] == strategy.value
+            ]
+            if strategy_data:
+                time_errors = [
+                    (c['actual_time'] - c['estimated_time']) / max(c['estimated_time'], 0.1)
+                    for c in strategy_data
+                ]
+                stats[strategy.value] = {
+                    'samples': len(strategy_data),
+                    'mean_time_error': sum(time_errors) / len(time_errors),
+                    'current_base_time': self.time_coefficients[strategy]['base'],
+                    'current_base_memory': self.memory_coefficients[strategy]['base']
+                }
+        
+        return stats
+    
+    async def calibrate_from_benchmark(
+        self,
+        row_counts: List[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Run a calibration benchmark to measure actual costs.
+        
+        This creates synthetic workloads and measures actual execution
+        times to calibrate the cost model coefficients.
+        """
+        import time
+        import numpy as np
+        import pandas as pd
+        from sklearn.linear_model import SGDClassifier
+        from sklearn.preprocessing import StandardScaler
+        
+        row_counts = row_counts or [100, 1000, 5000, 10000]
+        
+        results = {
+            'benchmarks': [],
+            'updated_coefficients': {}
+        }
+        
+        for n_rows in row_counts:
+            logger.info(f"Running benchmark with {n_rows} rows...")
+            
+            # Generate synthetic data
+            np.random.seed(42)
+            X = np.random.randn(n_rows, 10)
+            y = (X[:, 0] + X[:, 1] > 0).astype(int)
+            
+            df = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(10)])
+            df['target'] = y
+            
+            # Benchmark INCREMENTAL (partial_fit)
+            scaler = StandardScaler()
+            clf = SGDClassifier(loss='log_loss', random_state=42, warm_start=True)
+            X_scaled = scaler.fit_transform(X)
+            
+            start = time.time()
+            clf.partial_fit(X_scaled, y, classes=[0, 1])
+            incremental_time = time.time() - start
+            
+            # Benchmark FULL_RETRAIN
+            clf2 = SGDClassifier(loss='log_loss', random_state=42)
+            
+            start = time.time()
+            clf2.fit(X_scaled, y)
+            full_time = time.time() - start
+            
+            results['benchmarks'].append({
+                'rows': n_rows,
+                'incremental_time': incremental_time,
+                'full_retrain_time': full_time,
+                'ratio': full_time / max(incremental_time, 0.001)
+            })
+        
+        # Update coefficients based on regression
+        if len(results['benchmarks']) >= 2:
+            # Linear regression to find per_row coefficient
+            rows = np.array([b['rows'] for b in results['benchmarks']])
+            inc_times = np.array([b['incremental_time'] for b in results['benchmarks']])
+            full_times = np.array([b['full_retrain_time'] for b in results['benchmarks']])
+            
+            # Simple linear fit: time = base + per_row * rows
+            # Using least squares
+            A = np.vstack([np.ones(len(rows)), rows]).T
+            
+            inc_coeffs = np.linalg.lstsq(A, inc_times, rcond=None)[0]
+            full_coeffs = np.linalg.lstsq(A, full_times, rcond=None)[0]
+            
+            # Update coefficients
+            self.time_coefficients[ProcessingStrategy.INCREMENTAL]['base'] = max(inc_coeffs[0], 0.1)
+            self.time_coefficients[ProcessingStrategy.INCREMENTAL]['per_row'] = max(inc_coeffs[1], 0.00001)
+            
+            self.time_coefficients[ProcessingStrategy.FULL_RETRAIN]['base'] = max(full_coeffs[0], 0.1)
+            self.time_coefficients[ProcessingStrategy.FULL_RETRAIN]['per_row'] = max(full_coeffs[1], 0.00001)
+            
+            # Estimate partial retrain (between incremental and full)
+            self.time_coefficients[ProcessingStrategy.PARTIAL_RETRAIN]['base'] = (
+                inc_coeffs[0] + full_coeffs[0]
+            ) / 2
+            self.time_coefficients[ProcessingStrategy.PARTIAL_RETRAIN]['per_row'] = (
+                inc_coeffs[1] + full_coeffs[1]
+            ) / 2
+            
+            results['updated_coefficients'] = {
+                'incremental': self.time_coefficients[ProcessingStrategy.INCREMENTAL],
+                'partial_retrain': self.time_coefficients[ProcessingStrategy.PARTIAL_RETRAIN],
+                'full_retrain': self.time_coefficients[ProcessingStrategy.FULL_RETRAIN]
+            }
+        
+        logger.info(f"Calibration complete: {results['updated_coefficients']}")
+        return results
 
 
 # Singleton instance

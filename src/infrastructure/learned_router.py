@@ -237,23 +237,36 @@ class LearnedRouter:
         rows_before = max(delta.rows_before, 1)
         rows_after = max(delta.rows_after, 1)
         
+        # Ensure all values are scalars (not lists or arrays)
+        columns_added = delta.columns_added if delta.columns_added else []
+        columns_removed = delta.columns_removed if delta.columns_removed else []
+        columns_modified = delta.columns_modified if delta.columns_modified else []
+        
+        # Ensure lists are actually lists
+        if not isinstance(columns_added, list):
+            columns_added = list(columns_added) if columns_added else []
+        if not isinstance(columns_removed, list):
+            columns_removed = list(columns_removed) if columns_removed else []
+        if not isinstance(columns_modified, list):
+            columns_modified = list(columns_modified) if columns_modified else []
+        
         features = [
-            delta.rows_inserted / rows_after,                    # insert_ratio
-            delta.rows_deleted / rows_before,                    # delete_ratio
-            delta.rows_updated / rows_before,                    # update_ratio
-            delta.change_magnitude,                              # change_magnitude
-            delta.entropy_delta,                                 # entropy_delta
-            delta.feature_drift_score,                           # feature_drift_score
-            len(delta.columns_added or []),                      # columns_added_count
-            len(delta.columns_removed or []),                    # columns_removed_count
-            len(delta.columns_modified or []),                   # columns_modified_count
-            1.0 if (delta.columns_added or delta.columns_removed) else 0.0,  # is_schema_change
-            np.log1p(rows_before),                               # rows_before_log
-            np.log1p(rows_after),                                # rows_after_log
-            context.get('hours_since_last_update', 24.0)         # time_since_last_update_hours
+            float(delta.rows_inserted / rows_after),             # insert_ratio
+            float(delta.rows_deleted / rows_before),             # delete_ratio
+            float(delta.rows_updated / rows_before),             # update_ratio
+            float(delta.change_magnitude),                       # change_magnitude
+            float(delta.entropy_delta),                          # entropy_delta
+            float(delta.feature_drift_score),                    # feature_drift_score
+            float(len(columns_added)),                           # columns_added_count
+            float(len(columns_removed)),                         # columns_removed_count
+            float(len(columns_modified)),                        # columns_modified_count
+            1.0 if (columns_added or columns_removed) else 0.0,  # is_schema_change
+            float(np.log1p(rows_before)),                        # rows_before_log
+            float(np.log1p(rows_after)),                         # rows_after_log
+            float(context.get('hours_since_last_update', 24.0))  # time_since_last_update_hours
         ]
         
-        return np.array(features)
+        return np.array(features, dtype=np.float64)
     
     def _estimate_accuracy_impact(
         self, 
@@ -300,8 +313,9 @@ class LearnedRouter:
             from sklearn.ensemble import GradientBoostingClassifier
             from sklearn.model_selection import cross_val_score
             
-            # Prepare training data
-            X = np.array([self._extract_features(d, {}) for d in historical_deltas])
+            # Prepare training data - extract features as list then stack
+            feature_list = [self._extract_features(d, {}) for d in historical_deltas]
+            X = np.vstack(feature_list)  # Use vstack instead of np.array for proper 2D shape
             
             # Labels: what strategy was optimal based on outcomes
             y = np.array([self._determine_optimal_strategy(o) for o in outcomes])
@@ -385,6 +399,291 @@ class LearnedRouter:
             logger.info(f"Saved router model to {self.model_path}")
         except Exception as e:
             logger.error(f"Could not save router model: {e}")
+    
+    async def generate_synthetic_training_data(
+        self,
+        n_samples: int = 1000
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Generate synthetic training data for the router.
+        
+        This creates realistic delta scenarios with known optimal strategies,
+        allowing the router to learn decision boundaries without requiring
+        extensive historical data.
+        
+        Returns:
+            Tuple of (delta_features, outcomes)
+        """
+        np.random.seed(42)
+        
+        delta_features = []
+        outcomes = []
+        
+        for i in range(n_samples):
+            # Generate random scenario
+            scenario = np.random.choice(['tiny', 'small', 'medium', 'large', 'schema'])
+            
+            if scenario == 'tiny':
+                # Very small changes → SKIP
+                features = {
+                    'rows_before': np.random.randint(1000, 100000),
+                    'rows_after': 0,  # Will be set
+                    'rows_inserted': np.random.randint(0, 50),
+                    'rows_deleted': np.random.randint(0, 30),
+                    'rows_updated': np.random.randint(0, 100),
+                    'change_magnitude': np.random.uniform(0.001, 0.01),
+                    'entropy_delta': np.random.uniform(-0.02, 0.02),
+                    'feature_drift_score': np.random.uniform(0, 0.03),
+                    'columns_added': [],
+                    'columns_removed': [],
+                    'columns_modified': np.random.choice([[], ['col1']], p=[0.8, 0.2])
+                }
+                optimal_strategy = 0  # SKIP
+                accuracy_drop = np.random.uniform(0, 0.01)
+                
+            elif scenario == 'small':
+                # Small changes → INCREMENTAL
+                features = {
+                    'rows_before': np.random.randint(1000, 100000),
+                    'rows_after': 0,
+                    'rows_inserted': np.random.randint(50, 500),
+                    'rows_deleted': np.random.randint(20, 200),
+                    'rows_updated': np.random.randint(100, 1000),
+                    'change_magnitude': np.random.uniform(0.01, 0.15),
+                    'entropy_delta': np.random.uniform(-0.1, 0.1),
+                    'feature_drift_score': np.random.uniform(0.02, 0.15),
+                    'columns_added': [],
+                    'columns_removed': [],
+                    'columns_modified': ['col1'] if np.random.random() > 0.6 else []
+                }
+                optimal_strategy = 1  # INCREMENTAL
+                accuracy_drop = np.random.uniform(0.01, 0.04)
+                
+            elif scenario == 'medium':
+                # Medium changes → PARTIAL_RETRAIN
+                features = {
+                    'rows_before': np.random.randint(1000, 100000),
+                    'rows_after': 0,
+                    'rows_inserted': np.random.randint(500, 5000),
+                    'rows_deleted': np.random.randint(200, 2000),
+                    'rows_updated': np.random.randint(1000, 10000),
+                    'change_magnitude': np.random.uniform(0.15, 0.40),
+                    'entropy_delta': np.random.uniform(-0.2, 0.2),
+                    'feature_drift_score': np.random.uniform(0.1, 0.25),
+                    'columns_added': [],
+                    'columns_removed': [],
+                    'columns_modified': ['col1', 'col2']
+                }
+                optimal_strategy = 2  # PARTIAL_RETRAIN
+                accuracy_drop = np.random.uniform(0.02, 0.06)
+                
+            elif scenario == 'large':
+                # Large changes → FULL_RETRAIN
+                features = {
+                    'rows_before': np.random.randint(1000, 100000),
+                    'rows_after': 0,
+                    'rows_inserted': np.random.randint(5000, 50000),
+                    'rows_deleted': np.random.randint(2000, 20000),
+                    'rows_updated': np.random.randint(10000, 50000),
+                    'change_magnitude': np.random.uniform(0.40, 1.0),
+                    'entropy_delta': np.random.uniform(-0.5, 0.5),
+                    'feature_drift_score': np.random.uniform(0.25, 0.8),
+                    'columns_added': [],
+                    'columns_removed': [],
+                    'columns_modified': ['col1', 'col2', 'col3']
+                }
+                optimal_strategy = 3  # FULL_RETRAIN
+                accuracy_drop = np.random.uniform(0.04, 0.1)
+                
+            else:  # schema
+                # Schema changes → FULL_RETRAIN
+                features = {
+                    'rows_before': np.random.randint(1000, 100000),
+                    'rows_after': 0,
+                    'rows_inserted': np.random.randint(0, 1000),
+                    'rows_deleted': np.random.randint(0, 500),
+                    'rows_updated': np.random.randint(0, 2000),
+                    'change_magnitude': np.random.uniform(0.1, 0.5),
+                    'entropy_delta': np.random.uniform(-0.3, 0.3),
+                    'feature_drift_score': np.random.uniform(0.1, 0.5),
+                    'columns_added': ['new_col'] if np.random.random() > 0.5 else [],
+                    'columns_removed': ['old_col'] if np.random.random() > 0.5 else [],
+                    'columns_modified': []
+                }
+                optimal_strategy = 3  # FULL_RETRAIN
+                accuracy_drop = np.random.uniform(0.05, 0.15)
+            
+            # Ensure at least one schema change for schema scenarios
+            if scenario == 'schema' and not features['columns_added'] and not features['columns_removed']:
+                features['columns_added'] = ['new_col']
+            
+            # Calculate rows_after
+            features['rows_after'] = features['rows_before'] + features['rows_inserted'] - features['rows_deleted']
+            features['rows_after'] = max(features['rows_after'], 100)
+            
+            delta_features.append(features)
+            
+            # Calculate estimated cost for outcome
+            strategy_costs = {0: 0.1, 1: 1.0, 2: 5.0, 3: 10.0}
+            actual_cost = strategy_costs[optimal_strategy] * (features['rows_after'] / 10000)
+            
+            outcomes.append({
+                'optimal_strategy': optimal_strategy,
+                'strategy_used': ['skip', 'incremental', 'partial', 'full'][optimal_strategy],
+                'accuracy_drop': accuracy_drop,
+                'actual_cost': actual_cost + np.random.uniform(-0.1, 0.1) * actual_cost
+            })
+        
+        return delta_features, outcomes
+    
+    async def train_from_synthetic_data(self, n_samples: int = 1000) -> Dict[str, Any]:
+        """
+        Train the router using synthetic data.
+        
+        This provides a bootstrap for the router when no historical data
+        is available. The synthetic data covers the key decision boundaries.
+        """
+        logger.info(f"Generating {n_samples} synthetic training samples...")
+        
+        try:
+            from sklearn.ensemble import GradientBoostingClassifier
+            from sklearn.model_selection import cross_val_score
+            
+            # Generate synthetic data directly as arrays
+            np.random.seed(42)
+            
+            X_list = []
+            y_list = []
+            
+            for i in range(n_samples):
+                scenario = np.random.choice(['tiny', 'small', 'medium', 'large', 'schema'])
+                
+                if scenario == 'tiny':
+                    rows_before = np.random.randint(1000, 100000)
+                    rows_inserted = np.random.randint(0, 50)
+                    rows_deleted = np.random.randint(0, 30)
+                    rows_updated = np.random.randint(0, 100)
+                    change_magnitude = np.random.uniform(0.001, 0.01)
+                    entropy_delta = np.random.uniform(-0.02, 0.02)
+                    feature_drift_score = np.random.uniform(0, 0.03)
+                    cols_added = 0
+                    cols_removed = 0
+                    cols_modified = 0
+                    optimal_strategy = 0  # SKIP
+                    
+                elif scenario == 'small':
+                    rows_before = np.random.randint(1000, 100000)
+                    rows_inserted = np.random.randint(50, 500)
+                    rows_deleted = np.random.randint(20, 200)
+                    rows_updated = np.random.randint(100, 1000)
+                    change_magnitude = np.random.uniform(0.01, 0.15)
+                    entropy_delta = np.random.uniform(-0.1, 0.1)
+                    feature_drift_score = np.random.uniform(0.02, 0.15)
+                    cols_added = 0
+                    cols_removed = 0
+                    cols_modified = 1 if np.random.random() > 0.6 else 0
+                    optimal_strategy = 1  # INCREMENTAL
+                    
+                elif scenario == 'medium':
+                    rows_before = np.random.randint(1000, 100000)
+                    rows_inserted = np.random.randint(500, 5000)
+                    rows_deleted = np.random.randint(200, 2000)
+                    rows_updated = np.random.randint(1000, 10000)
+                    change_magnitude = np.random.uniform(0.15, 0.40)
+                    entropy_delta = np.random.uniform(-0.2, 0.2)
+                    feature_drift_score = np.random.uniform(0.1, 0.25)
+                    cols_added = 0
+                    cols_removed = 0
+                    cols_modified = 2
+                    optimal_strategy = 2  # PARTIAL_RETRAIN
+                    
+                elif scenario == 'large':
+                    rows_before = np.random.randint(1000, 100000)
+                    rows_inserted = np.random.randint(5000, 50000)
+                    rows_deleted = np.random.randint(2000, 20000)
+                    rows_updated = np.random.randint(10000, 50000)
+                    change_magnitude = np.random.uniform(0.40, 1.0)
+                    entropy_delta = np.random.uniform(-0.5, 0.5)
+                    feature_drift_score = np.random.uniform(0.25, 0.8)
+                    cols_added = 0
+                    cols_removed = 0
+                    cols_modified = 3
+                    optimal_strategy = 3  # FULL_RETRAIN
+                    
+                else:  # schema
+                    rows_before = np.random.randint(1000, 100000)
+                    rows_inserted = np.random.randint(0, 1000)
+                    rows_deleted = np.random.randint(0, 500)
+                    rows_updated = np.random.randint(0, 2000)
+                    change_magnitude = np.random.uniform(0.1, 0.5)
+                    entropy_delta = np.random.uniform(-0.3, 0.3)
+                    feature_drift_score = np.random.uniform(0.1, 0.5)
+                    cols_added = 1
+                    cols_removed = 0
+                    cols_modified = 0
+                    optimal_strategy = 3  # FULL_RETRAIN
+                
+                rows_after = max(rows_before + rows_inserted - rows_deleted, 100)
+                
+                # Build feature vector directly
+                features = [
+                    rows_inserted / rows_after,           # insert_ratio
+                    rows_deleted / rows_before,           # delete_ratio
+                    rows_updated / rows_before,           # update_ratio
+                    change_magnitude,                     # change_magnitude
+                    entropy_delta,                        # entropy_delta
+                    feature_drift_score,                  # feature_drift_score
+                    float(cols_added),                    # columns_added_count
+                    float(cols_removed),                  # columns_removed_count
+                    float(cols_modified),                 # columns_modified_count
+                    1.0 if (cols_added > 0 or cols_removed > 0) else 0.0,  # is_schema_change
+                    np.log1p(rows_before),                # rows_before_log
+                    np.log1p(rows_after),                 # rows_after_log
+                    24.0                                  # time_since_last_update_hours
+                ]
+                
+                X_list.append(features)
+                y_list.append(optimal_strategy)
+            
+            X = np.array(X_list, dtype=np.float64)
+            y = np.array(y_list, dtype=np.int32)
+            
+            logger.info(f"Training data shape: X={X.shape}, y={y.shape}")
+            
+            # Train model
+            self.model = GradientBoostingClassifier(
+                n_estimators=100,
+                max_depth=5,
+                learning_rate=0.1,
+                random_state=42
+            )
+            
+            # Cross-validation
+            cv_scores = cross_val_score(self.model, X, y, cv=5)
+            
+            # Final fit
+            self.model.fit(X, y)
+            
+            # Save model
+            self._save_model()
+            
+            metrics = {
+                'cv_accuracy_mean': float(cv_scores.mean()),
+                'cv_accuracy_std': float(cv_scores.std()),
+                'n_samples': n_samples,
+                'feature_importance': dict(zip(
+                    self.feature_names,
+                    self.model.feature_importances_.tolist()
+                )),
+                'trained_at': datetime.utcnow().isoformat()
+            }
+            
+            logger.info(f"Router model trained: accuracy={metrics['cv_accuracy_mean']:.3f}")
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Synthetic training failed: {e}", exc_info=True)
+            raise
 
 
 # Singleton instance

@@ -541,3 +541,262 @@ async def train_router(
         data=metrics,
         message=f"Router trained on {len(deltas)} samples"
     )
+
+
+@router.post("/router/train-synthetic")
+async def train_router_synthetic(
+    n_samples: int = Query(default=1000, ge=100, le=10000)
+):
+    """
+    Train the learned router using synthetic data.
+    
+    This bootstraps the router when no historical data is available.
+    Generates realistic scenarios covering all decision boundaries.
+    
+    Args:
+        n_samples: Number of synthetic samples to generate (100-10000)
+    """
+    try:
+        metrics = await learned_router.train_from_synthetic_data(n_samples)
+        
+        return SuccessResponse(
+            data=metrics,
+            message=f"Router trained on {n_samples} synthetic samples"
+        )
+    except Exception as e:
+        logger.error(f"Synthetic training failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/router/status")
+async def get_router_status():
+    """
+    Get the current status of the learned router.
+    
+    Returns whether the router is trained and its current mode.
+    """
+    is_trained = learned_router.model is not None
+    
+    return SuccessResponse(data={
+        "is_trained": is_trained,
+        "mode": "ml" if is_trained else "rule-based",
+        "model_path": learned_router.model_path,
+        "feature_names": learned_router.feature_names,
+        "default_thresholds": learned_router.default_thresholds
+    })
+
+
+@router.post("/run/{file_id}")
+async def run_pipeline_for_file(
+    file_id: str,
+    target_column: str = Query(default="target"),
+    priority: str = Query(default="balanced"),
+    db: Session = Depends(mysql.get_db)
+):
+    """
+    Manually trigger the incremental ML pipeline for a specific file.
+    
+    This runs the full pipeline:
+    1. Load file from storage
+    2. Detect changes vs previous version
+    3. Route to optimal strategy via ML
+    4. Optimize based on constraints
+    5. Execute the update
+    6. Record outcomes for feedback
+    """
+    try:
+        from services.pipeline_orchestrator import PipelineOrchestrator
+        
+        constraints = OptimizationConstraints(priority=priority)
+        orchestrator = PipelineOrchestrator(db)
+        
+        result = await orchestrator.run_pipeline(
+            file_id=file_id,
+            constraints=constraints,
+            target_column=target_column
+        )
+        
+        return SuccessResponse(data=result)
+        
+    except Exception as e:
+        logger.error(f"Pipeline execution failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cost/calibrate")
+async def calibrate_cost_model():
+    """
+    Run a calibration benchmark to measure actual processing costs.
+    
+    This executes synthetic workloads to calibrate the cost model
+    coefficients for accurate estimation.
+    """
+    try:
+        results = await cost_optimizer.calibrate_from_benchmark()
+        
+        return SuccessResponse(
+            data=results,
+            message="Cost model calibrated successfully"
+        )
+    except Exception as e:
+        logger.error(f"Calibration failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cost/stats")
+async def get_cost_calibration_stats():
+    """
+    Get current cost calibration statistics.
+    
+    Shows how accurate the cost estimates have been and
+    current coefficient values.
+    """
+    stats = cost_optimizer.get_calibration_stats()
+    
+    return SuccessResponse(data={
+        "calibration_stats": stats,
+        "current_coefficients": {
+            "time": {
+                k.value: v for k, v in cost_optimizer.time_coefficients.items()
+            },
+            "memory": {
+                k.value: v for k, v in cost_optimizer.memory_coefficients.items()
+            }
+        }
+    })
+
+
+@router.get("/feedback/stats")
+async def get_feedback_stats(db: Session = Depends(mysql.get_db)):
+    """
+    Get statistics about the feedback loop.
+    
+    Shows how the system is learning from actual outcomes.
+    """
+    from services.feedback_loop_service import FeedbackLoopService
+    
+    feedback_service = FeedbackLoopService(db)
+    stats = feedback_service.get_feedback_stats()
+    
+    return SuccessResponse(data=stats)
+
+
+@router.get("/feedback/recommendations")
+async def get_improvement_recommendations(db: Session = Depends(mysql.get_db)):
+    """
+    Get recommendations for improving the pipeline.
+    
+    Analyzes current performance and suggests actionable improvements.
+    """
+    from services.feedback_loop_service import FeedbackLoopService
+    
+    feedback_service = FeedbackLoopService(db)
+    recommendations = await feedback_service.get_improvement_recommendations()
+    
+    return SuccessResponse(data={
+        "recommendations": recommendations,
+        "generated_at": datetime.utcnow().isoformat()
+    })
+
+
+@router.get("/model/status")
+async def get_model_status():
+    """
+    Get the current status of the incremental ML model.
+    
+    Shows training state, accuracy, and version info.
+    """
+    from infrastructure.incremental_model import get_default_model
+    
+    model = get_default_model()
+    
+    if model.state is None:
+        return SuccessResponse(data={
+            "is_trained": False,
+            "message": "No model trained yet. Upload a CSV file to start."
+        })
+    
+    return SuccessResponse(data={
+        "is_trained": True,
+        "version": model.state.version,
+        "accuracy": model.state.current_accuracy,
+        "training_samples": model.state.training_samples,
+        "last_update": model.state.last_update.isoformat(),
+        "feature_names": model.state.feature_names,
+        "data_hash": model.state.data_hash[:16]
+    })
+
+
+@router.get("/model/timing-stats")
+async def get_model_timing_stats():
+    """
+    Get timing statistics from the model for cost calibration.
+    
+    Shows actual execution times by strategy for calibration.
+    """
+    from infrastructure.incremental_model import get_default_model
+    
+    model = get_default_model()
+    stats = model.get_timing_stats()
+    
+    return SuccessResponse(data={
+        "timing_stats": stats,
+        "history_size": len(model.timing_history)
+    })
+
+
+@router.get("/health")
+async def pipeline_health_check(db: Session = Depends(mysql.get_db)):
+    """
+    Comprehensive health check for the entire pipeline.
+    
+    Checks all components and returns overall status.
+    """
+    from infrastructure.incremental_model import get_default_model
+    
+    health = {
+        "status": "healthy",
+        "components": {},
+        "checked_at": datetime.utcnow().isoformat()
+    }
+    
+    # Check router
+    health["components"]["router"] = {
+        "status": "healthy",
+        "mode": "ml" if learned_router.model else "rule-based",
+        "is_trained": learned_router.model is not None
+    }
+    
+    # Check cost optimizer
+    health["components"]["cost_optimizer"] = {
+        "status": "healthy",
+        "has_calibration_data": hasattr(cost_optimizer, 'calibration_history') and len(getattr(cost_optimizer, 'calibration_history', [])) > 0
+    }
+    
+    # Check model
+    model = get_default_model()
+    health["components"]["ml_model"] = {
+        "status": "healthy" if model.state else "not_trained",
+        "is_trained": model.state is not None,
+        "accuracy": model.state.current_accuracy if model.state else None
+    }
+    
+    # Check database connectivity
+    try:
+        from repositories.delta_repository import DeltaRepo
+        repo = DeltaRepo(db)
+        # Simple query to test connection
+        recent = repo.get_recent_deltas(hours=1)
+        health["components"]["database"] = {
+            "status": "healthy",
+            "recent_deltas": len(recent)
+        }
+    except Exception as e:
+        health["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+        health["status"] = "degraded"
+    
+    return SuccessResponse(data=health)
+
