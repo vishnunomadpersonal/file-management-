@@ -8,8 +8,9 @@
 3. [Why a Separate File Management Service?](#why-a-separate-file-management-service)
 4. [How to Use it?](#how-to-use-it)
 5. [API Endpoints](#api-endpoints)
-6. [Contributing](#Contributing)
-7. [Local HTTPS Trust (Caddy Internal CA)](#local-https-trust-caddy-internal-ca)
+6. [🆕 Incremental ML Pipeline](#-incremental-ml-pipeline)
+7. [Contributing](#Contributing)
+8. [Local HTTPS Trust (Caddy Internal CA)](#local-https-trust-caddy-internal-ca)
 
 ## Introduction
 
@@ -26,6 +27,8 @@ This microservice is designed to manage all file-related tasks. It uses **MinIO*
 - 💾 [MinIO](https://min.io/) for scalable object storage with chunk upload support.
 - ✅ [Pytest](https://pytest.org) for testing to ensure code reliability and functionality.
 - 🐋 [Docker Compose](https://www.docker.com) for development and production.
+- 🤖 [**Scikit-learn**](https://scikit-learn.org/) for ML-powered incremental model updates (inspired by IVM research).
+- 🧠 **Learned Router** - ML model that predicts optimal update strategies based on data delta characteristics.
   
 ## Why a Separate File Management Service?
 
@@ -116,6 +119,74 @@ Here’s a quick reference guide to the available API endpoints, their methods, 
 | POST   | `/api/v1/file/upload/retry`                 | Retry uploading a file.                                          |
 
 A Postman collection export is also available for testing these endpoints. You can import it into Postman to quickly get started with API testing.
+
+## 🆕 Incremental ML Pipeline
+
+> **Research Feature**: Applying database Incremental View Maintenance (IVM) concepts to ML model updates - inspired by DaST research at UZH.
+
+This feature implements an intelligent ML pipeline that automatically decides the optimal strategy for updating ML models when data changes, rather than always performing expensive full retraining.
+
+### Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Incremental View Maintenance (IVM)** | Database technique for efficiently updating materialized views when base data changes |
+| **Learned Router** | ML model that predicts the optimal update strategy based on delta characteristics |
+| **Cost Optimizer** | Estimates computational cost of different update strategies |
+| **Feedback Loop** | Continuously improves routing decisions based on actual outcomes |
+
+### Architecture
+
+```mermaid
+graph LR
+    A[File Upload] --> B[Change Detection]
+    B --> C[Learned Router]
+    C --> D{Decision}
+    D -->|Skip| E[No Update]
+    D -->|Incremental| F[Partial Update]
+    D -->|Full| G[Complete Retrain]
+    F --> H[Feedback Loop]
+    G --> H
+    H --> C
+```
+
+### Quick Start
+
+```bash
+# 1. Train the learned router with synthetic data
+curl -X POST "https://localhost:9443/api/v1/pipeline/router/train-synthetic?n_samples=500"
+
+# 2. Calibrate cost optimizer with real measurements
+curl -X POST "https://localhost:9443/api/v1/pipeline/cost/calibrate"
+
+# 3. Check system health
+curl "https://localhost:9443/api/v1/pipeline/health"
+
+# 4. Upload a CSV file - pipeline auto-triggers!
+```
+
+### New Endpoints
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| POST | `/api/v1/pipeline/router/train-synthetic` | Train router with synthetic data |
+| GET | `/api/v1/pipeline/router/status` | Get router status and feature importance |
+| POST | `/api/v1/pipeline/cost/calibrate` | Calibrate cost model with benchmarks |
+| GET | `/api/v1/pipeline/cost/stats` | Get calibration statistics |
+| GET | `/api/v1/pipeline/feedback/stats` | Get feedback loop statistics |
+| GET | `/api/v1/pipeline/feedback/recommendations` | Get system recommendations |
+| POST | `/api/v1/pipeline/run/{file_id}` | Manually run pipeline for a file |
+| GET | `/api/v1/pipeline/model/status` | Get ML model training status |
+| GET | `/api/v1/pipeline/health` | System health check |
+
+### Research Relevance
+
+This implementation demonstrates practical application of concepts from:
+- **Incremental View Maintenance (IVM)**: Instead of recomputing entire ML models, we maintain them incrementally
+- **Adaptive Query Processing**: The learned router adapts its decisions based on data characteristics
+- **Cost-Based Optimization**: Using cost models to select optimal update strategies
+
+📖 **Full Documentation**: See [`documentation/INCREMENTAL_ML_PIPELINE.md`](documentation/INCREMENTAL_ML_PIPELINE.md) for comprehensive technical details.
 
 ## Contributing
 
