@@ -12,9 +12,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-from src.services.feedback_service import get_feedback_service
-from src.infrastructure.db.database import get_db
-from src.core.security import get_current_user, require_role
+from services.feedback_service import get_feedback_service
+from infrastructure.db.mysql import mysql
+from core.security import get_current_user, require_role
 
 router = APIRouter(
     prefix="/api/v1/feedback",
@@ -77,7 +77,7 @@ class TrainRequest(BaseModel):
 @router.post("/predict")
 async def record_prediction(
     request: RecordPredictionRequest,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -110,7 +110,7 @@ async def record_prediction(
 async def record_outcome(
     feedback_id: str,
     request: RecordOutcomeRequest,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -143,7 +143,7 @@ async def record_outcome(
 @router.post("/complete")
 async def record_complete_feedback(
     request: CompleteFeedbackRequest,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -176,7 +176,7 @@ async def record_complete_feedback(
 
 @router.get("/readiness")
 async def get_training_readiness(
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -194,7 +194,7 @@ async def get_training_readiness(
 @router.post("/train")
 async def trigger_training(
     request: TrainRequest,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(require_role(["admin", "manager"]))
 ):
     """
@@ -231,7 +231,7 @@ async def trigger_training(
 async def get_feedback_history(
     hours: int = 24,
     limit: int = 100,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -253,7 +253,7 @@ async def get_feedback_history(
 @router.get("/training-history")
 async def get_training_history(
     limit: int = 10,
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -272,7 +272,7 @@ async def get_training_history(
 
 @router.get("/stats")
 async def get_feedback_stats(
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(get_current_user)
 ):
     """
@@ -284,7 +284,7 @@ async def get_feedback_stats(
 
 @router.delete("/reset")
 async def reset_unused_feedback(
-    db=Depends(get_db),
+    db=Depends(mysql.get_db),
     current_user=Depends(require_role(["admin"]))
 ):
     """

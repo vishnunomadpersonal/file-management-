@@ -9,15 +9,33 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
-from src.entities.pipeline_feedback import PipelineFeedback, RouterTrainingRecord
-from src.repositories.base_repository import BaseRepository
+from entities.pipeline_feedback import PipelineFeedback, RouterTrainingRecord
 
 
-class FeedbackRepository(BaseRepository[PipelineFeedback]):
+class FeedbackRepository:
     """Repository for pipeline feedback operations."""
     
     def __init__(self, db: Session):
-        super().__init__(PipelineFeedback, db)
+        self.db = db
+    
+    def add(self, entity: PipelineFeedback) -> PipelineFeedback:
+        """Add a new feedback entry."""
+        self.db.add(entity)
+        self.db.commit()
+        self.db.refresh(entity)
+        return entity
+    
+    def update(self, entity: PipelineFeedback) -> PipelineFeedback:
+        """Update an existing feedback entry."""
+        self.db.commit()
+        self.db.refresh(entity)
+        return entity
+    
+    def find_by_id(self, id: str) -> Optional[PipelineFeedback]:
+        """Find feedback by ID."""
+        return self.db.query(PipelineFeedback).filter(
+            PipelineFeedback.id == id
+        ).first()
     
     def find_by_delta_id(self, delta_id: str) -> Optional[PipelineFeedback]:
         """Find feedback for a specific delta."""
@@ -135,11 +153,24 @@ class FeedbackRepository(BaseRepository[PipelineFeedback]):
         return training_data
 
 
-class TrainingRecordRepository(BaseRepository[RouterTrainingRecord]):
+class TrainingRecordRepository:
     """Repository for router training records."""
     
     def __init__(self, db: Session):
-        super().__init__(RouterTrainingRecord, db)
+        self.db = db
+    
+    def add(self, entity: RouterTrainingRecord) -> RouterTrainingRecord:
+        """Add a new training record."""
+        self.db.add(entity)
+        self.db.commit()
+        self.db.refresh(entity)
+        return entity
+    
+    def update(self, entity: RouterTrainingRecord) -> RouterTrainingRecord:
+        """Update an existing training record."""
+        self.db.commit()
+        self.db.refresh(entity)
+        return entity
     
     def find_by_batch_id(self, batch_id: str) -> Optional[RouterTrainingRecord]:
         """Find a training record by batch ID."""

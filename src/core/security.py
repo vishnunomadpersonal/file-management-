@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 
@@ -35,9 +35,6 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 # API Key Settings
 API_KEY_HEADER = "X-API-Key"
 API_KEYS: Dict[str, Dict[str, Any]] = {}  # Will be loaded from DB/config
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Security schemes
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -184,13 +181,26 @@ class AuthenticatedUser:
 # ============================================================================
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    """
+    Hash a password using bcrypt.
+    
+    Note: bcrypt has a 72-byte limit. We truncate if necessary.
+    """
+    # Truncate to 72 bytes if needed (bcrypt limit)
+    password_bytes = password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password_bytes, salt).decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    # Apply same truncation for verification
+    password_bytes = plain_password.encode('utf-8')[:72]
+    hashed_bytes = hashed_password.encode('utf-8')
+    try:
+        return bcrypt.checkpw(password_bytes, hashed_bytes)
+    except Exception:
+        return False
 
 
 # ============================================================================

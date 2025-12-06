@@ -12,9 +12,9 @@ from typing import Dict, Any, List, Optional
 
 from sqlalchemy.orm import Session
 
-from src.entities.pipeline_feedback import PipelineFeedback, RouterTrainingRecord
-from src.repositories.feedback_repository import FeedbackRepository, TrainingRecordRepository
-from src.infrastructure.model_versioning import get_router_model_manager
+from entities.pipeline_feedback import PipelineFeedback, RouterTrainingRecord
+from repositories.feedback_repository import FeedbackRepository, TrainingRecordRepository
+from infrastructure.model_versioning import get_router_model_manager
 
 logger = logging.getLogger(__name__)
 

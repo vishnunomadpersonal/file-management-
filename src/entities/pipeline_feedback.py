@@ -4,14 +4,13 @@ Pipeline Feedback Entity - Persistent Storage for ML Pipeline Feedback.
 Stores feedback about model decisions for continuous learning.
 """
 
+from infrastructure.db.mysql import mysql as db
 from sqlalchemy import Column, String, Float, JSON, Text, Boolean, Integer, DateTime
 from sqlalchemy.sql import func
 import uuid
 
-from src.infrastructure.db.base import Base
 
-
-class PipelineFeedback(Base):
+class PipelineFeedback(db.Base):
     """
     Stores feedback about ML pipeline decisions.
     
@@ -65,7 +64,7 @@ class PipelineFeedback(Base):
         return f"<PipelineFeedback {self.id} delta={self.delta_id} strategy={self.strategy}>"
 
 
-class RouterTrainingRecord(Base):
+class RouterTrainingRecord(db.Base):
     """
     Records when the learned router was trained.
     

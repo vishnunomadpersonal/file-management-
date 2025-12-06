@@ -12,14 +12,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from src.infrastructure.model_versioning import (
+from infrastructure.model_versioning import (
     get_model_manager,
     get_router_model_manager,
     get_incremental_model_manager,
     get_cost_model_manager,
     ModelVersionManager
 )
-from src.core.security import get_current_user, require_role
+from core.security import get_current_user, require_role
 
 router = APIRouter(
     prefix="/api/v1/models",
