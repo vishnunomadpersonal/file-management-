@@ -11,8 +11,28 @@ pytest-cov===5.0.0
 aiohttp==3.9.5
 starlette==0.37.2
 
-# Incremental ML Pipeline dependencies
-numpy>=1.24.0
-pandas>=2.0.0
-scikit-learn>=1.3.0
-psutil>=5.9.0
+# Incremental ML Pipeline dependencies (pinned for reproducibility)
+numpy==1.26.4
+pandas==2.1.4
+scikit-learn==1.3.2
+psutil==5.9.8
+joblib==1.3.2
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+pydantic[email]==2.7.4
+
+# Rate limiting
+slowapi==0.1.9
+
+# MCP Server (for document chat)
+httpx==0.27.0
+sse-starlette==2.1.0
+
+# Input validation
+email-validator==2.1.1
+
+# Testing async
+pytest-asyncio==0.23.5

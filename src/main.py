@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from api.routes import file, appointment, user, pipeline
+from api.routes import file, appointment, user, pipeline, auth, mcp, model_versioning, feedback
 from exceptions.handler import ExceptionHandler
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -10,6 +10,7 @@ from api.responses.response import ErrorResponse
 import logging
 import traceback
 import sys
+import time
 from infrastructure.db.mysql import mysql
 from services.appointment_service import AppointmentService
 from repositories.appointment_repository import AppointmentRepo
@@ -99,7 +100,21 @@ def create_application() -> FastAPI:
     app.include_router(appointment.router)
     app.include_router(user.router)
     app.include_router(pipeline.router)  # Incremental ML Pipeline routes
+    app.include_router(auth.router)      # Authentication routes
+    app.include_router(mcp.router)       # MCP Server routes (Document Chat)
+    app.include_router(model_versioning.router)  # Model versioning routes
+    app.include_router(feedback.router)  # Feedback & continuous learning routes
     ExceptionHandler(app)
+    
+    # Add request timing middleware
+    @app.middleware("http")
+    async def add_process_time_header(request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        process_time = time.time() - start_time
+        response.headers["X-Process-Time"] = str(process_time)
+        return response
+    
     return app
 
 
