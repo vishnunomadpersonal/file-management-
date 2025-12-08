@@ -10,7 +10,7 @@ from exceptions.http_exception import BaseException
 from exceptions.virus_exception import VirusDetectedException, VirusScanException
 from constants.file_extensions import FileExtension
 from constants.errors import Errors
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from core.config import config
 from utils import parse_json_to_dict
 import logging
@@ -49,7 +49,8 @@ class FileHandler(BaseHandler[FileService]):
             return self.response.error(ErrorResponse(message="An error occurred during chunk upload"), status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     async def upload_complete(self, upload_id: str, total_chunks: int, total_size: int, file_extension: FileExtension,
-                              content_type: str, credential: str, detail: str, appointment_id: str, user_id: str, filename: str, size: int = 0) -> JSONResponse:
+                              content_type: str, credential: str, detail: str, appointment_id: Optional[str], user_id: str, filename: str, 
+                              organization_id: Optional[str] = None, folder_id: Optional[str] = None, size: int = 0) -> JSONResponse:
         logger.info("=== UPLOAD_COMPLETE HANDLER CALLED ===")
         try:
             logger.info(f"Starting upload_complete for upload_id: {upload_id}")
@@ -66,7 +67,8 @@ class FileHandler(BaseHandler[FileService]):
                 
             payload = UploadFileDTO(upload_id=upload_id, total_chunks=total_chunks, total_size=total_size, file_extension=file_extension,
                                     content_type=content_type, detail=detail_dict, credential=credential_dict, size=size,
-                                    appointment_id=appointment_id, user_id=user_id, filename=filename)
+                                    appointment_id=appointment_id, user_id=user_id, filename=filename,
+                                    organization_id=organization_id, folder_id=folder_id)
             
             logger.info(f"Calling service.upload_complete with payload: {payload}")
             file = await self.service.upload_complete(payload=payload)

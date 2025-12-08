@@ -53,16 +53,109 @@ services:
     image: caddy:2
     container_name: caddy
     depends_on:
+      - kong
       - minio
     ports:
-      - "80:80"      # HTTP (redirects to HTTPS). Fixes stray http://localhost requests
+      - "80:80"      # HTTP (redirects to HTTPS)
       - "9443:443"   # HTTPS for local dev
-      - "9080:80"    # HTTP (redirects to HTTPS by default)
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data  # persist Caddy data (includes local CA)
     networks:
       - filemanager
+
+  # ==========================================================================
+  # KONG - Enterprise API Gateway
+  # ==========================================================================
+  kong-db:
+    image: postgres:15-alpine
+    container_name: kong-db
+    environment:
+      POSTGRES_DB: kong
+      POSTGRES_USER: kong
+      POSTGRES_PASSWORD: kong_password
+    volumes:
+      - kong_db_data:/var/lib/postgresql/data
+    networks:
+      - filemanager
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kong"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kong-migrations:
+    image: kong:3.9
+    container_name: kong-migrations
+    command: kong migrations bootstrap
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong_password
+    networks:
+      - filemanager
+    depends_on:
+      kong-db:
+        condition: service_healthy
+    restart: on-failure
+
+  kong:
+    image: kong:3.9
+    container_name: kong
+    environment:
+      # Database
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: kong-db
+      KONG_PG_DATABASE: kong
+      KONG_PG_USER: kong
+      KONG_PG_PASSWORD: kong_password
+      # Proxy settings
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      # Listeners
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+      KONG_ADMIN_GUI_LISTEN: 0.0.0.0:8002, 0.0.0.0:8445 ssl
+      # Admin GUI
+      KONG_ADMIN_GUI_URL: http://localhost:8002
+      KONG_ADMIN_GUI_PATH: /manager
+      # Declarative config (DB-less mode backup)
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      # Plugins
+      KONG_PLUGINS: bundled
+      # Trusted IPs (for X-Forwarded headers from Caddy)
+      KONG_TRUSTED_IPS: 0.0.0.0/0,::/0
+      KONG_REAL_IP_HEADER: X-Forwarded-For
+      KONG_REAL_IP_RECURSIVE: "on"
+      # Performance
+      KONG_NGINX_WORKER_PROCESSES: auto
+      # DNS
+      KONG_DNS_RESOLVER: 127.0.0.11
+    volumes:
+      - ./kong/kong.yml:/kong/declarative/kong.yml:ro
+    ports:
+      - "8100:8000"   # Kong Proxy (HTTP) - internal, Caddy proxies to this
+      - "8443:8443"   # Kong Proxy (HTTPS) - for direct access if needed
+      - "8001:8001"   # Kong Admin API
+      - "8002:8002"   # Kong Manager GUI
+    networks:
+      - filemanager
+    depends_on:
+      kong-db:
+        condition: service_healthy
+      kong-migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   db-mysql:
     image: mysql:8.0
@@ -134,6 +227,71 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ==========================================================================
+  # KEYCLOAK - Enterprise Identity & Access Management
+  # ==========================================================================
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: keycloak-db
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_password}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - filemanager
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: keycloak
+    environment:
+      # Admin credentials
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Database configuration
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_password}
+      # Hostname configuration
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_HOSTNAME_PORT: ${KEYCLOAK_PORT:-8080}
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      # HTTP configuration (dev mode)
+      KC_HTTP_ENABLED: true
+      KC_HTTP_PORT: 8080
+      KC_PROXY_HEADERS: xforwarded
+      # Health and metrics
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+      # Features
+      KC_FEATURES: token-exchange,admin-fine-grained-authz
+    command: start-dev --import-realm
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      - filemanager
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/filemanager || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
 # Define the named volumes at the bottom of the file
 volumes:
   mysql_data:
@@ -141,6 +299,9 @@ volumes:
   rabbitmq_data:
   clamav_data: 
   caddy_data:
+  keycloak_db_data:
+  keycloak_data:
+  kong_db_data:
 
 networks:
   filemanager:

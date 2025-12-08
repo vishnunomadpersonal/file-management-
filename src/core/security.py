@@ -145,6 +145,8 @@ class TokenResponse(BaseModel):
     expires_in: int
     user_id: str
     role: str
+    status: str = "approved"  # pending, approved, rejected
+    organization_id: Optional[str] = None
 
 
 @dataclass

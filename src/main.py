@@ -1,12 +1,18 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
-from api.routes import file, appointment, user, pipeline, auth, mcp, model_versioning, feedback
+from api.routes import (
+    file, appointment, user, pipeline, auth, mcp, 
+    model_versioning, feedback, keycloak_auth, keycloak_users
+)
+from api.routes.organizations import router as organizations_router
+from api.routes.folder import folder_router
 from exceptions.handler import ExceptionHandler
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from contextlib import asynccontextmanager
 from infrastructure.minio import minioStorage
 from api.responses.response import ErrorResponse
+from core.tenant import TenantMiddleware
 import logging
 import traceback
 import sys
@@ -54,10 +60,18 @@ async def lifespan(app: FastAPI):
 
 
 def create_application() -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
+    app = FastAPI(
+        lifespan=lifespan,
+        title="File Management API",
+        description="Enterprise-grade multi-tenant file management system",
+        version="2.0.0"
+    )
 
     # Honor X-Forwarded-Proto/For from Caddy so generated redirects use https
     app.add_middleware(ProxyHeadersMiddleware)
+    
+    # Add Tenant Context Middleware (extracts tenant from path/headers)
+    app.add_middleware(TenantMiddleware)
 
     # Add CORS middleware FIRST
     app.add_middleware(
@@ -66,6 +80,8 @@ def create_application() -> FastAPI:
         allow_origins=[
             "http://localhost:3000",
             "https://localhost:3000",
+            "http://localhost:3001",
+            "https://localhost:3001",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -86,10 +102,10 @@ def create_application() -> FastAPI:
         # Manually add CORS headers to ensure they're present
         # Mirror the primary dev origins; browsers require exact match when credentials=true
         origin = request.headers.get("origin")
-        if origin in {"http://localhost:3000", "https://localhost:3000"}:
+        if origin in {"http://localhost:3000", "https://localhost:3000", "http://localhost:3001", "https://localhost:3001"}:
             response.headers["Access-Control-Allow-Origin"] = origin
         else:
-            response.headers["Access-Control-Allow-Origin"] = "http://localhost:3000"
+            response.headers["Access-Control-Allow-Origin"] = "http://localhost:3001"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "*"
@@ -101,6 +117,10 @@ def create_application() -> FastAPI:
     app.include_router(user.router)
     app.include_router(pipeline.router)  # Incremental ML Pipeline routes
     app.include_router(auth.router)      # Authentication routes
+    app.include_router(keycloak_auth.router)  # Keycloak OAuth2/OIDC authentication
+    app.include_router(keycloak_users.router)  # Keycloak user management (admin)
+    app.include_router(organizations_router)  # Multi-tenant organization management
+    app.include_router(folder_router)     # Folder management routes
     app.include_router(mcp.router)       # MCP Server routes (Document Chat)
     app.include_router(model_versioning.router)  # Model versioning routes
     app.include_router(feedback.router)  # Feedback & continuous learning routes

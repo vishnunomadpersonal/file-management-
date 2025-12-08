@@ -27,6 +27,7 @@ class User(db.Base):
     
     # Role and permissions
     role = Column(String(50), default="user")  # super_admin, org_admin, manager, user, viewer
+    status = Column(String(50), default="pending")  # pending, approved, rejected
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     
@@ -61,3 +62,4 @@ class User(db.Base):
     organization = relationship("Organization", back_populates="users")
     appointments = relationship("Appointment", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
+    folders = relationship("Folder", back_populates="creator", foreign_keys="Folder.created_by")

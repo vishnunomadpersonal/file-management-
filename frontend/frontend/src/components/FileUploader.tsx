@@ -129,7 +129,7 @@ export default function FileUploader({
           const msg =
             typeof body === 'string'
               ? body
-              : (body && (body as any).message) || `Failed to upload chunk ${i + 1}`;
+              : (body && (body as { message?: string }).message) || `Failed to upload chunk ${i + 1}`;
           throw new Error(msg);
         }
 
@@ -159,7 +159,7 @@ export default function FileUploader({
         const msg =
           typeof body === 'string'
             ? body
-            : (body && ((body as any).message || (body as any).errors?.[0])) ||
+            : (body && ((body as { message?: string; errors?: string[] }).message || (body as { errors?: string[] }).errors?.[0])) ||
               'Failed to complete upload.';
         throw new Error(msg);
       }

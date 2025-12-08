@@ -11,8 +11,12 @@ class File(db.Base):
                 index=True, default=lambda: str(uuid.uuid4()))
     upload_id = Column(String(36), nullable=False, unique=True, index=True)
     filename = Column(String(255), nullable=False)
-    appointment_id = Column(VARCHAR(36), ForeignKey("appointments.id"), nullable=False)
+    appointment_id = Column(VARCHAR(36), ForeignKey("appointments.id"), nullable=True)  # Optional - for general file uploads
     user_id = Column(VARCHAR(36), ForeignKey("users.id"), nullable=False)
+    # Organization that owns this file (for bucket organization)
+    organization_id = Column(VARCHAR(36), ForeignKey("organizations.id"), nullable=True)
+    # Folder this file belongs to (NULL = root level)
+    folder_id = Column(VARCHAR(36), ForeignKey("folders.id"), nullable=True)
     credential = Column(JSON(none_as_null=True))
     # Path must be globally unique per stored object
     path = Column(VARCHAR(255), nullable=False, unique=True, index=True)
@@ -32,4 +36,6 @@ class File(db.Base):
     # Relationships
     appointment = relationship("Appointment", back_populates="files")
     user = relationship("User", back_populates="files")
+    organization = relationship("Organization", back_populates="files")
+    folder = relationship("Folder", back_populates="files")
     # Relationship to CeleryTask is optional and no longer enforced via FK

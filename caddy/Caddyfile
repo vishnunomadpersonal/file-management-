@@ -1,41 +1,232 @@
-# Local development: serve HTTPS on localhost using provided certificates
-# Access via https://localhost:9443
+# ============================================================================
+# CADDY - Edge Proxy / TLS Termination
+# Enterprise Multi-Tenant File Management Platform
+# ============================================================================
+# Architecture:
+#   Internet -> Caddy (TLS) -> Kong (API Gateway) -> Backend Services
+# ============================================================================
+
 localhost {
   # Use Caddy's internal CA for local HTTPS (no mkcert needed)
   tls internal
 
-  # Proxy API requests to FastAPI (preserve scheme/host so redirects/CORS are correct)
-  reverse_proxy /api/* http://filemanager:8000 {
-    header_up Host {host}
-    header_up X-Forwarded-Proto https
+  # --------------------------------------------------------------------------
+  # API Routes -> Kong Gateway
+  # All /api/* routes go through Kong for rate limiting, auth, etc.
+  # --------------------------------------------------------------------------
+  handle /api/* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Host {host}
+      header_up X-Forwarded-Port 443
+      
+      # Timeout for large file uploads
+      transport http {
+        dial_timeout 30s
+        read_timeout 300s
+        write_timeout 300s
+      }
+    }
   }
 
-  # Serve the Next.js dev server through Caddy so the app and API share the same https origin
-  reverse_proxy /_next/* http://host.docker.internal:3000
-  reverse_proxy / http://host.docker.internal:3000
-  reverse_proxy /favicon.ico http://host.docker.internal:3000
-
-  # MinIO Console at https://localhost:9443/console
-  handle_path /console/* {
-    uri strip_prefix /console
-    reverse_proxy http://minio:9090
+  # --------------------------------------------------------------------------
+  # Organizations API -> Kong Gateway
+  # --------------------------------------------------------------------------
+  handle /organizations/* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Forwarded-Proto https
+    }
   }
 
+  # --------------------------------------------------------------------------
+  # OpenAPI Docs -> Kong Gateway
+  # --------------------------------------------------------------------------
+  handle /docs {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
 
-  reverse_proxy minio:9000 {
-    # Preserve host and port for S3 signature verification
-    header_up Host {hostport}
-    header_up X-Forwarded-Proto https
+  handle /redoc {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
 
-    # Stream large uploads/downloads (S3 semantics)
-    flush_interval -1
+  handle /openapi.json {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Keycloak Auth -> Kong Gateway
+  # --------------------------------------------------------------------------
+  handle /auth/* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Direct Keycloak access (for admin console)
+  # --------------------------------------------------------------------------
+  handle /keycloak/* {
+    uri strip_prefix /keycloak
+    reverse_proxy keycloak:8080 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Kong Manager GUI (Admin)
+  # --------------------------------------------------------------------------
+  handle /kong-admin/* {
+    uri strip_prefix /kong-admin
+    reverse_proxy kong:8002 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Kong Admin API (Protected - should be IP restricted in production)
+  # --------------------------------------------------------------------------
+  handle /kong-api/* {
+    uri strip_prefix /kong-api
+    reverse_proxy kong:8001 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # MinIO S3 API -> Kong Gateway
+  # --------------------------------------------------------------------------
+  handle /s3/* {
+    reverse_proxy kong:8000 {
+      header_up Host {hostport}
+      header_up X-Forwarded-Proto https
+      
+      # Stream large uploads/downloads
+      flush_interval -1
+      
+      transport http {
+        dial_timeout 30s
+        read_timeout 600s  # 10 min for large files
+        write_timeout 600s
+      }
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # MinIO Console (Admin UI)
+  # --------------------------------------------------------------------------
+  handle /minio-console/* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # API Documentation (Swagger/ReDoc) -> Kong
+  # --------------------------------------------------------------------------
+  handle /docs* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  handle /redoc* {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  handle /openapi.json {
+    reverse_proxy kong:8000 {
+      header_up Host {host}
+      header_up X-Forwarded-Proto https
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Next.js Frontend (Development)
+  # --------------------------------------------------------------------------
+  handle /_next/* {
+    reverse_proxy host.docker.internal:3000 {
+      header_up Host {host}
+    }
+  }
+
+  # Static files and other frontend routes
+  handle /favicon.ico {
+    reverse_proxy host.docker.internal:3000
+  }
+
+  # Frontend routes for org-based paths
+  handle /org/* {
+    reverse_proxy host.docker.internal:3000 {
+      header_up Host {host}
+    }
+  }
+
+  # Default: Frontend
+  handle {
+    reverse_proxy host.docker.internal:3000 {
+      header_up Host {host}
+    }
+  }
+
+  # --------------------------------------------------------------------------
+  # Security Headers (applied to all responses)
+  # --------------------------------------------------------------------------
+  header {
+    # Remove server identification
+    -Server
+    -X-Powered-By
+    
+    # Security headers
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy strict-origin-when-cross-origin
+    
+    # Only add HSTS in production
+    # Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  }
+
+  # --------------------------------------------------------------------------
+  # Logging
+  # --------------------------------------------------------------------------
+  log {
+    output file /var/log/caddy/access.log {
+      roll_size 100mb
+      roll_keep 5
+      roll_keep_for 720h
+    }
+    format json
   }
 }
 
-
-# Explicit HTTP listener that redirects to the exposed HTTPS port 9443
+# --------------------------------------------------------------------------
+# HTTP -> HTTPS Redirect
+# --------------------------------------------------------------------------
 :80 {
   redir https://localhost:9443{uri} permanent
 }
-
-

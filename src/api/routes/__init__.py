@@ -12,6 +12,9 @@ from . import auth
 from . import mcp
 from . import model_versioning
 from . import feedback
+from . import keycloak_auth
+from . import keycloak_users
+from . import organizations
 
 __all__ = [
     "file",
@@ -21,5 +24,8 @@ __all__ = [
     "auth",
     "mcp",
     "model_versioning",
-    "feedback"
+    "feedback",
+    "keycloak_auth",
+    "keycloak_users",
+    "organizations"
 ]

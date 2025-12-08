@@ -48,13 +48,15 @@ async def endpoint(chunk_size: int = Form(..., le=config.APP_MAX_CHUNK_SIZE),
 async def endpoint(upload_id: str = Form(...), total_chunks: int = Form(...),
                    total_size: int = Form(...), credential: Optional[str] = Form(None),
                    file_extension: FileExtension = Form(...), content_type: str = Form(...),
-                   appointment_id: str = Form(...), user_id: str = Form(...),
+                   appointment_id: Optional[str] = Form(None), user_id: str = Form(...),
                    filename: str = Form(...),
+                   organization_id: Optional[str] = Form(None), folder_id: Optional[str] = Form(None),
                    detail: Optional[str] = Form(None), file_handler: FileHandler = Depends(get_file_handler)):
     return await file_handler.upload_complete(upload_id=upload_id, total_chunks=total_chunks, total_size=total_size,
                                               file_extension=file_extension, content_type=content_type,
                                               credential=credential, detail=detail, appointment_id=appointment_id,
-                                              user_id=user_id, filename=filename)
+                                              user_id=user_id, filename=filename,
+                                              organization_id=organization_id, folder_id=folder_id)
 
 
 @router.get('/get/{file_id}', response_model=SuccessResponse[FileResponse], responses={

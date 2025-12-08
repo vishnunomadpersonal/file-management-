@@ -78,4 +78,51 @@ class Config:
             port=int(self.RABBITMQ_PORT),
         )
 
+    # Keycloak Configuration
+    KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
+    KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "filemanager")
+    KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "filemanager-api")
+    KEYCLOAK_CLIENT_SECRET = os.getenv("KEYCLOAK_CLIENT_SECRET", "")
+    KEYCLOAK_ADMIN_USERNAME = os.getenv("KEYCLOAK_ADMIN_USERNAME", "admin")
+    KEYCLOAK_ADMIN_PASSWORD = os.getenv("KEYCLOAK_ADMIN_PASSWORD", "admin")
+    KEYCLOAK_ENABLED = os.getenv("KEYCLOAK_ENABLED", "true").lower() == "true"
+    
+    # OAuth2 callback URL (used for OAuth2 authorization code flow)
+    KEYCLOAK_REDIRECT_URI = os.getenv("KEYCLOAK_REDIRECT_URI", "http://localhost:8000/api/v1/keycloak/login/oauth2/callback")
+    
+    @property
+    def KEYCLOAK_ISSUER_URL(self):
+        """Full issuer URL for token validation"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}"
+    
+    @property
+    def KEYCLOAK_TOKEN_URL(self):
+        """Token endpoint URL"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/token"
+    
+    @property
+    def KEYCLOAK_AUTH_URL(self):
+        """Authorization endpoint URL"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/auth"
+    
+    @property
+    def KEYCLOAK_USERINFO_URL(self):
+        """UserInfo endpoint URL"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/userinfo"
+    
+    @property
+    def KEYCLOAK_LOGOUT_URL(self):
+        """Logout endpoint URL"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/logout"
+    
+    @property
+    def KEYCLOAK_CERTS_URL(self):
+        """JWKS endpoint URL for public keys"""
+        return f"{self.KEYCLOAK_URL}/realms/{self.KEYCLOAK_REALM}/protocol/openid-connect/certs"
+    
+    @property
+    def KEYCLOAK_ADMIN_URL(self):
+        """Admin REST API base URL"""
+        return f"{self.KEYCLOAK_URL}/admin/realms/{self.KEYCLOAK_REALM}"
+
 config = Config()

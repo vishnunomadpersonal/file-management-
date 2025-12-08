@@ -202,9 +202,9 @@ async def register(
     Creates a new user account with email/password authentication.
     Optionally creates a new organization or joins an existing one.
     """
-    # Check rate limit (5 registrations per IP per hour)
+    # Check rate limit (100 registrations per IP per hour for development)
     ip = get_client_ip(request)
-    if not rate_limiter.is_allowed(f"register:{ip}", 5, 3600):
+    if not rate_limiter.is_allowed(f"register:{ip}", 100, 3600):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many registration attempts. Please try again later."
@@ -249,12 +249,21 @@ async def register(
         organization_id = org.id
     
     # Create user
+    # Determine if approval is needed:
+    # - New organization (org_admin) -> needs platform admin approval
+    # - Joining existing organization -> needs org_admin approval
+    # - No organization (standalone user) -> auto-approved
+    is_new_org = bool(data.organization_name)
+    is_joining_org = bool(data.organization_id) and not is_new_org
+    needs_approval = is_new_org or is_joining_org
+    
     user = User(
         name=data.name,
         email=data.email,
         password_hash=hash_password(data.password),
         organization_id=organization_id,
-        role="org_admin" if data.organization_name else "user",  # First user of org is admin
+        role="org_admin" if is_new_org else "user",  # First user of org is admin
+        status="pending" if needs_approval else "approved",  # Org users need approval
         is_active=True,
         verification_token=secrets.token_urlsafe(32)
     )
@@ -290,7 +299,8 @@ async def register(
         token_type="bearer",
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user_id=user.id,
-        role=user.role
+        role=user.role,
+        status=user.status
     ))
 
 
@@ -418,7 +428,9 @@ async def login(
         token_type="bearer",
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user_id=user.id,
-        role=user.role
+        role=user.role,
+        status=getattr(user, 'status', 'approved'),  # Default to approved for existing users
+        organization_id=user.organization_id
     ))
 
 

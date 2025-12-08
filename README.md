@@ -9,8 +9,9 @@
 4. [How to Use it?](#how-to-use-it)
 5. [API Endpoints](#api-endpoints)
 6. [🆕 Incremental ML Pipeline](#-incremental-ml-pipeline)
-7. [Contributing](#Contributing)
-8. [Local HTTPS Trust (Caddy Internal CA)](#local-https-trust-caddy-internal-ca)
+7. [🔐 Keycloak Enterprise IAM](#-keycloak-enterprise-iam)
+8. [Contributing](#Contributing)
+9. [Local HTTPS Trust (Caddy Internal CA)](#local-https-trust-caddy-internal-ca)
 
 ## Introduction
 
@@ -29,6 +30,7 @@ This microservice is designed to manage all file-related tasks. It uses **MinIO*
 - 🐋 [Docker Compose](https://www.docker.com) for development and production.
 - 🤖 [**Scikit-learn**](https://scikit-learn.org/) for ML-powered incremental model updates (inspired by IVM research).
 - 🧠 **Learned Router** - ML model that predicts optimal update strategies based on data delta characteristics.
+- 🔐 [**Keycloak**](https://www.keycloak.org/) for enterprise IAM with SSO, MFA, social login, and LDAP support.
   
 ## Why a Separate File Management Service?
 
@@ -187,6 +189,68 @@ This implementation demonstrates practical application of concepts from:
 - **Cost-Based Optimization**: Using cost models to select optimal update strategies
 
 📖 **Full Documentation**: See [`documentation/INCREMENTAL_ML_PIPELINE.md`](documentation/INCREMENTAL_ML_PIPELINE.md) for comprehensive technical details.
+
+## 🔐 Keycloak Enterprise IAM
+
+This service includes enterprise-grade Identity and Access Management (IAM) powered by [Keycloak](https://www.keycloak.org/).
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Single Sign-On (SSO)** | Login once, access multiple applications |
+| **Social Login** | Google, GitHub, Microsoft authentication |
+| **Multi-Factor Authentication** | TOTP, WebAuthn security options |
+| **LDAP/Active Directory** | Enterprise directory integration |
+| **Fine-grained RBAC** | Role-based access control with permissions |
+| **OAuth2/OIDC** | Industry-standard authentication protocols |
+| **Admin Console** | Web-based user management interface |
+
+### Quick Start
+
+```bash
+# Start all services including Keycloak
+docker-compose up -d
+
+# Access Keycloak Admin Console
+# URL: http://localhost:8080
+# Username: admin
+# Password: admin
+```
+
+### Authentication Endpoints
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| POST | `/api/v1/auth/keycloak/login` | Direct login with email/password |
+| GET | `/api/v1/auth/keycloak/login/oauth2/authorize` | Start OAuth2 flow |
+| GET | `/api/v1/auth/keycloak/social/{provider}` | Social login (google, github, microsoft) |
+| POST | `/api/v1/auth/keycloak/refresh` | Refresh access token |
+| POST | `/api/v1/auth/keycloak/logout` | Logout and invalidate session |
+| GET | `/api/v1/auth/keycloak/me` | Get current user profile |
+
+### Admin Endpoints
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| GET | `/api/v1/admin/keycloak/users` | List all users |
+| POST | `/api/v1/admin/keycloak/users` | Create user |
+| PUT | `/api/v1/admin/keycloak/users/{id}` | Update user |
+| POST | `/api/v1/admin/keycloak/users/{id}/roles` | Assign roles |
+| POST | `/api/v1/admin/keycloak/users/{id}/mfa/enable` | Enable MFA |
+| GET | `/api/v1/admin/keycloak/stats` | System statistics |
+
+### Predefined Roles
+
+| Role | Access Level |
+|------|--------------|
+| `super_admin` | Full system access |
+| `org_admin` | Organization management |
+| `manager` | Team resource management |
+| `user` | Standard file operations |
+| `viewer` | Read-only access |
+
+📖 **Full Documentation**: See [`documentation/KEYCLOAK_INTEGRATION.md`](documentation/KEYCLOAK_INTEGRATION.md) for comprehensive setup and configuration guide.
 
 ## Contributing
 

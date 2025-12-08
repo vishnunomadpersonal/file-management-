@@ -61,6 +61,8 @@ class Organization(db.Base):
     
     # Relationships
     users = relationship("User", back_populates="organization", cascade="all, delete-orphan")
+    files = relationship("File", back_populates="organization")
+    folders = relationship("Folder", back_populates="organization", foreign_keys="Folder.organization_id")
     
     def has_feature(self, feature_name: str) -> bool:
         """Check if organization has a specific feature enabled."""

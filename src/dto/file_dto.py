@@ -19,7 +19,9 @@ class UploadFileDTO(BaseModel):
     size: int
     detail: Optional[Dict[str, Any]]
     credential: Optional[Dict[str, Any]]
-    appointment_id: str
+    appointment_id: Optional[str] = None  # Optional - for general file uploads
+    organization_id: Optional[str] = None  # Organization bucket
+    folder_id: Optional[str] = None  # Folder within organization
     user_id: str
     filename: str
 
@@ -31,7 +33,9 @@ class FileBaseDTO(BaseModel):
     size: int
     detail: Optional[Dict[str, Any]]
     celery_task_id: str
-    appointment_id: str
+    appointment_id: Optional[str] = None  # Optional - for general file uploads
+    organization_id: Optional[str] = None  # Organization bucket
+    folder_id: Optional[str] = None  # Folder within organization
     user_id: str
     filename: str
     
@@ -49,6 +53,8 @@ class FileResponseDTO(BaseModel):
     size: int
     download_url: Optional[str] = None
     appointment_name: Optional[str] = None
+    folder_id: Optional[str] = None
+    folder_name: Optional[str] = None
     
     # Virus scanning fields
     virus_scan_status: str = 'pending'

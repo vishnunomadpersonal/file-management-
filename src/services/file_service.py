@@ -164,8 +164,15 @@ class FileService(BaseService[FileRepo]):
                 logger.info(f"Virus scanning disabled for {payload.upload_id}")
             
             # File is clean or scan was disabled - proceed with normal upload
-            # Determine bucket
-            if not payload.credential:
+            # Determine bucket - use organization bucket if organization_id is provided
+            if payload.organization_id:
+                # Use organization-specific bucket
+                bucket = f"org-{payload.organization_id.lower()}"
+                # Ensure bucket exists
+                if not minioStorage.bucket_exists(bucket):
+                    logger.info(f"Creating organization bucket: {bucket}")
+                    minioStorage.create_bucket(bucket)
+            elif not payload.credential:
                 bucket = minioStorage.public_bucket
             else:
                 bucket = minioStorage.private_bucket
