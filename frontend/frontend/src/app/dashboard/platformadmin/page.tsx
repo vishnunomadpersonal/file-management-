@@ -1,24 +1,30 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { organizationsApi, filesApi, ApiOrganization, ApiFile } from '@/lib/api';
 import {
   Building2,
-  Users,
   FileStack,
   HardDrive,
+  ArrowLeft,
+  Search,
+  Download,
+  Eye,
+  Trash2,
+  RefreshCw,
+  CheckCircle,
   AlertTriangle,
   Shield,
-  TrendingUp,
-  Activity,
-  Server,
-  Database,
-  Globe,
-  Clock,
-  CheckCircle,
-  XCircle,
-  ArrowUpRight,
-  ArrowDownRight,
+  File,
+  Image,
+  FileText,
+  Video,
+  Music,
+  Archive,
+  Calendar,
+  ChevronRight,
+  FolderOpen,
 } from 'lucide-react';
 
 // Format bytes to human readable
@@ -30,353 +36,606 @@ const formatBytes = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-// Mock platform data
-const platformStats = {
-  organizations: { total: 156, active: 142, new_this_month: 12 },
-  users: { total: 4823, active: 3912, new_this_month: 287 },
-  files: { total: 892341, uploaded_today: 12847, scanned_today: 12847 },
-  storage: { used: 4.2 * 1024 * 1024 * 1024 * 1024, limit: 10 * 1024 * 1024 * 1024 * 1024 },
-  threats: { quarantined: 23, blocked_today: 5, total_scanned: 892341 },
-  api: { requests_today: 1284723, avg_response_ms: 45, uptime: 99.99 },
+// Format date
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return 'Unknown';
+  return new Date(dateStr).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 };
 
-const recentActivities = [
-  { type: 'org_created', message: 'New organization "MedTech Solutions" created', user: 'john@medtech.com', time: '5m ago', icon: Building2 },
-  { type: 'threat', message: 'Virus detected and quarantined in org_healthcare', user: 'System', time: '12m ago', icon: Shield },
-  { type: 'user', message: 'New admin user added to "FinCorp Inc"', user: 'admin@fincorp.com', time: '23m ago', icon: Users },
-  { type: 'api', message: 'API rate limit exceeded for org_startup', user: 'System', time: '45m ago', icon: Globe },
-  { type: 'file', message: '10,000 files uploaded by "DataCorp"', user: 'batch@datacorp.com', time: '1h ago', icon: FileStack },
-  { type: 'system', message: 'Scheduled backup completed successfully', user: 'System', time: '2h ago', icon: Database },
-];
+// Get file type icon
+function getFileTypeIcon(contentType: string) {
+  if (contentType.startsWith('image/')) return Image;
+  if (contentType.startsWith('video/')) return Video;
+  if (contentType.startsWith('audio/')) return Music;
+  if (contentType.includes('pdf')) return FileText;
+  if (contentType.includes('zip') || contentType.includes('archive') || contentType.includes('compressed')) return Archive;
+  if (contentType.includes('text') || contentType.includes('document')) return FileText;
+  return File;
+}
 
-const topOrganizations = [
-  { name: 'Acme Healthcare', files: 128473, storage: 32 * 1024 * 1024 * 1024, plan: 'enterprise', trend: 12.5 },
-  { name: 'TechCorp Finance', files: 89234, storage: 24 * 1024 * 1024 * 1024, plan: 'enterprise', trend: 8.3 },
-  { name: 'DataFlow Systems', files: 67891, storage: 18 * 1024 * 1024 * 1024, plan: 'pro', trend: -2.1 },
-  { name: 'CloudNine Inc', files: 45672, storage: 12 * 1024 * 1024 * 1024, plan: 'pro', trend: 15.7 },
-  { name: 'StartupX', files: 23456, storage: 6 * 1024 * 1024 * 1024, plan: 'free', trend: 45.2 },
-];
+// Get virus status badge
+function VirusStatusBadge({ status, isQuarantined }: { status: string; isQuarantined: boolean }) {
+  if (isQuarantined) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+        <AlertTriangle className="w-3 h-3" />
+        Quarantined
+      </span>
+    );
+  }
+  
+  switch (status) {
+    case 'clean':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+          <CheckCircle className="w-3 h-3" />
+          Clean
+        </span>
+      );
+    case 'infected':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+          <Shield className="w-3 h-3" />
+          Infected
+        </span>
+      );
+    case 'pending':
+    case 'scanning':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+          <RefreshCw className="w-3 h-3 animate-spin" />
+          Scanning
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">
+          Unknown
+        </span>
+      );
+  }
+}
 
-const services = [
-  { name: 'Kong API Gateway', status: 'healthy', port: 8100, latency: '12ms' },
-  { name: 'FastAPI Backend', status: 'healthy', port: 8000, latency: '8ms' },
-  { name: 'MySQL Database', status: 'healthy', port: 3306, latency: '3ms' },
-  { name: 'MinIO Storage', status: 'healthy', port: 9000, latency: '15ms' },
-  { name: 'ClamAV Scanner', status: 'healthy', port: 3000, latency: '45ms' },
-  { name: 'Keycloak Auth', status: 'healthy', port: 8080, latency: '22ms' },
-  { name: 'RabbitMQ', status: 'healthy', port: 5672, latency: '5ms' },
-  { name: 'Celery Workers', status: 'healthy', port: null, latency: null },
-];
+// Plan badge component
+function PlanBadge({ plan }: { plan: string }) {
+  const colors: Record<string, string> = {
+    enterprise: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    pro: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    free: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  };
+  
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-medium border ${colors[plan] || colors.free}`}>
+      {plan.charAt(0).toUpperCase() + plan.slice(1)}
+    </span>
+  );
+}
 
 export default function PlatformAdminDashboard() {
   const { isDark } = useTheme();
+  const [organizations, setOrganizations] = useState<ApiOrganization[]>([]);
+  const [selectedOrg, setSelectedOrg] = useState<ApiOrganization | null>(null);
+  const [files, setFiles] = useState<ApiFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch organizations
+  const fetchOrganizations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await organizationsApi.list(0, 100);
+      setOrganizations(result.items || []);
+    } catch (err) {
+      console.error('Failed to fetch organizations:', err);
+      setError('Failed to load organizations');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch files for selected organization
+  const fetchFilesForOrg = useCallback(async (orgId: string) => {
+    try {
+      setLoadingFiles(true);
+      setError(null);
+      const orgFiles = await filesApi.listByOrganization(orgId);
+      setFiles(orgFiles);
+    } catch (err) {
+      console.error('Failed to fetch files:', err);
+      setError('Failed to load files for organization');
+      setFiles([]);
+    } finally {
+      setLoadingFiles(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchOrganizations();
+  }, [fetchOrganizations]);
+
+  // When an organization is selected, fetch its files
+  const handleSelectOrg = (org: ApiOrganization) => {
+    setSelectedOrg(org);
+    fetchFilesForOrg(org.id);
+  };
+
+  // Go back to organizations list
+  const handleBack = () => {
+    setSelectedOrg(null);
+    setFiles([]);
+  };
+
+  // Filter organizations by search
+  const filteredOrgs = organizations.filter(org =>
+    org.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    org.slug.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Filter files by search
+  const filteredFiles = files.filter(file =>
+    file.filename.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Download file
+  const handleDownload = async (file: ApiFile) => {
+    try {
+      await filesApi.download(file.id, file.filename);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
+
+  // Delete file
+  const handleDelete = async (file: ApiFile) => {
+    if (!confirm(`Are you sure you want to delete "${file.filename}"?`)) return;
+    
+    try {
+      await filesApi.delete(file.id);
+      setFiles(prev => prev.filter(f => f.id !== file.id));
+    } catch (err) {
+      console.error('Delete failed:', err);
+    }
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Platform Overview</h1>
-          <p className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Monitor and manage all organizations, users, and system health</p>
-        </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-lg">
-            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-green-400 text-sm font-medium">All Systems Operational</span>
+          {selectedOrg && (
+            <button
+              onClick={handleBack}
+              className={`p-2 rounded-lg transition-colors ${
+                isDark 
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-white' 
+                  : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div>
+            <h1 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {selectedOrg ? selectedOrg.name : 'Platform Admin'}
+            </h1>
+            <p className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              {selectedOrg 
+                ? `View and manage files for ${selectedOrg.name}`
+                : 'Manage organizations and their files'
+              }
+            </p>
           </div>
         </div>
+        
+        {selectedOrg && (
+          <div className="flex items-center gap-2">
+            <PlanBadge plan={selectedOrg.plan} />
+            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              {formatBytes(selectedOrg.storage_used_bytes)} / {formatBytes(selectedOrg.storage_quota_bytes)}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Organizations */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-500/20 rounded-xl">
-              <Building2 className="w-6 h-6 text-blue-400" />
-            </div>
-            <span className="flex items-center gap-1 text-green-400 text-sm">
-              <ArrowUpRight className="w-4 h-4" />
-              +{platformStats.organizations.new_this_month}
-            </span>
-          </div>
-          <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{platformStats.organizations.total.toLocaleString()}</h3>
-          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Organizations</p>
-          <div className="mt-4 flex items-center gap-2">
-            <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-full">
-              {platformStats.organizations.active} active
-            </span>
-          </div>
+      {/* Breadcrumb */}
+      {selectedOrg && (
+        <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+          <button onClick={handleBack} className="hover:underline">Organizations</button>
+          <ChevronRight className="w-4 h-4" />
+          <span className={isDark ? 'text-white' : 'text-gray-900'}>{selectedOrg.name}</span>
+          <ChevronRight className="w-4 h-4" />
+          <span className={isDark ? 'text-white' : 'text-gray-900'}>Files</span>
         </div>
+      )}
 
-        {/* Users */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-purple-500/20 rounded-xl">
-              <Users className="w-6 h-6 text-purple-400" />
-            </div>
-            <span className="flex items-center gap-1 text-green-400 text-sm">
-              <ArrowUpRight className="w-4 h-4" />
-              +{platformStats.users.new_this_month}
-            </span>
-          </div>
-          <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{platformStats.users.total.toLocaleString()}</h3>
-          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Users</p>
-          <div className="mt-4 flex items-center gap-2">
-            <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-full">
-              {platformStats.users.active.toLocaleString()} active
-            </span>
-          </div>
-        </div>
-
-        {/* Files */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-cyan-500/20 rounded-xl">
-              <FileStack className="w-6 h-6 text-cyan-400" />
-            </div>
-            <span className="flex items-center gap-1 text-green-400 text-sm">
-              <TrendingUp className="w-4 h-4" />
-              +{platformStats.files.uploaded_today.toLocaleString()}
-            </span>
-          </div>
-          <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{platformStats.files.total.toLocaleString()}</h3>
-          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Files</p>
-          <div className="mt-4 flex items-center gap-2">
-            <span className="text-xs px-2 py-1 bg-cyan-500/20 text-cyan-400 rounded-full">
-              {platformStats.files.scanned_today.toLocaleString()} scanned today
-            </span>
-          </div>
-        </div>
-
-        {/* Threats */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border border-red-500/30 ${isDark ? 'bg-gray-800/50' : 'bg-white'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-500/20 rounded-xl">
-              <AlertTriangle className="w-6 h-6 text-red-400" />
-            </div>
-            <span className="flex items-center gap-1 text-red-400 text-sm">
-              <Shield className="w-4 h-4" />
-              {platformStats.threats.blocked_today} today
-            </span>
-          </div>
-          <h3 className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{platformStats.threats.quarantined}</h3>
-          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Threats Quarantined</p>
-          <div className="mt-4 flex items-center gap-2">
-            <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-full">
-              100% detected
-            </span>
-          </div>
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+        <input
+          type="text"
+          placeholder={selectedOrg ? 'Search files...' : 'Search organizations...'}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className={`w-full pl-12 pr-4 py-3 rounded-xl border transition-colors ${
+            isDark 
+              ? 'bg-gray-800/50 border-gray-700 text-white placeholder-gray-500 focus:border-indigo-500' 
+              : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400 focus:border-indigo-500'
+          } focus:outline-none focus:ring-2 focus:ring-indigo-500/20`}
+        />
       </div>
 
-      {/* Storage & API Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Platform Storage */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-6">
-            <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Platform Storage</h3>
-            <HardDrive className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>Total Used</span>
-                <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  {formatBytes(platformStats.storage.used)} / {formatBytes(platformStats.storage.limit)}
-                </span>
-              </div>
-              <div className={`h-4 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                <div 
-                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
-                  style={{ width: `${(platformStats.storage.used / platformStats.storage.limit) * 100}%` }}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4 mt-6">
-              <div className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>4.2</p>
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>TB Used</p>
-              </div>
-              <div className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>5.8</p>
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>TB Available</p>
-              </div>
-              <div className={`text-center p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>42%</p>
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Utilized</p>
-              </div>
-            </div>
-          </div>
+      {/* Error message */}
+      {error && (
+        <div className="p-4 rounded-xl bg-red-500/20 border border-red-500/30 text-red-400">
+          {error}
         </div>
+      )}
 
-        {/* API Performance */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-6">
-            <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>API Performance</h3>
-            <Globe className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className={`text-center p-4 rounded-xl ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-              <p className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>1.28M</p>
-              <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Requests Today</p>
-            </div>
-            <div className={`text-center p-4 rounded-xl ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-              <p className="text-3xl font-bold text-green-400">{platformStats.api.avg_response_ms}ms</p>
-              <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Avg Response</p>
-            </div>
-            <div className={`text-center p-4 rounded-xl ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-              <p className="text-3xl font-bold text-green-400">{platformStats.api.uptime}%</p>
-              <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Uptime</p>
-            </div>
-          </div>
-          <div className="mt-6 h-24 flex items-end justify-between gap-1">
-            {/* Mini bar chart for API requests */}
-            {[65, 72, 58, 80, 45, 90, 78, 85, 92, 70, 88, 95].map((height, i) => (
-              <div
-                key={i}
-                className="flex-1 bg-gradient-to-t from-blue-500 to-cyan-400 rounded-t opacity-70"
-                style={{ height: `${height}%` }}
-              />
-            ))}
-          </div>
-          <p className={`text-xs text-center mt-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Last 12 hours</p>
-        </div>
-      </div>
-
-      {/* Services & Activity Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Service Health */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-6">
-            <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Service Health</h3>
-            <Server className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-          <div className="space-y-3">
-            {services.map((service, i) => (
-              <div key={i} className={`flex items-center justify-between p-3 rounded-lg ${isDark ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
-                <div className="flex items-center gap-3">
-                  {service.status === 'healthy' ? (
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-red-400" />
-                  )}
-                  <span className={`text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{service.name}</span>
+      {/* Content */}
+      {!selectedOrg ? (
+        // Organizations List
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-500/20 rounded-xl">
+                  <Building2 className="w-6 h-6 text-blue-400" />
                 </div>
-                <div className="flex items-center gap-3 text-xs">
-                  {service.port && (
-                    <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>:{service.port}</span>
-                  )}
-                  {service.latency && (
-                    <span className="text-green-400">{service.latency}</span>
-                  )}
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {organizations.length}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Total Organizations
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className={`backdrop-blur-sm rounded-2xl p-6 border lg:col-span-2 ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-6">
-            <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Recent Activity</h3>
-            <Activity className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-          </div>
-          <div className="space-y-4">
-            {recentActivities.map((activity, i) => {
-              const Icon = activity.icon;
-              return (
-                <div key={i} className={`flex items-start gap-4 p-3 rounded-lg ${isDark ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
-                  <div className={`p-2 rounded-lg ${
-                    activity.type === 'threat' ? 'bg-red-500/20' :
-                    activity.type === 'org_created' ? 'bg-blue-500/20' :
-                    activity.type === 'user' ? 'bg-purple-500/20' :
-                    activity.type === 'api' ? 'bg-yellow-500/20' :
-                    'bg-gray-500/20'
-                  }`}>
-                    <Icon className={`w-4 h-4 ${
-                      activity.type === 'threat' ? 'text-red-400' :
-                      activity.type === 'org_created' ? 'text-blue-400' :
-                      activity.type === 'user' ? 'text-purple-400' :
-                      activity.type === 'api' ? 'text-yellow-400' :
-                      'text-gray-400'
-                    }`} />
-                  </div>
-                  <div className="flex-1">
-                    <p className={`text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{activity.message}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{activity.user}</span>
-                      <span className={`text-xs ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>•</span>
-                      <span className={`text-xs flex items-center gap-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        <Clock className="w-3 h-3" />
-                        {activity.time}
-                      </span>
-                    </div>
-                  </div>
+            </div>
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-green-500/20 rounded-xl">
+                  <CheckCircle className="w-6 h-6 text-green-400" />
                 </div>
-              );
-            })}
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {organizations.filter(o => o.is_active).length}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Active Organizations
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-purple-500/20 rounded-xl">
+                  <HardDrive className="w-6 h-6 text-purple-400" />
+                </div>
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {formatBytes(organizations.reduce((sum, o) => sum + o.storage_used_bytes, 0))}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Total Storage Used
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Organizations Table */}
+          <div className={`rounded-xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`px-6 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Organizations
+              </h2>
+            </div>
+            
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className={`w-8 h-8 animate-spin ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+              </div>
+            ) : filteredOrgs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Building2 className={`w-12 h-12 mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                <p className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                  {searchQuery ? 'No organizations match your search' : 'No organizations found'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Organization
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Plan
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Storage
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Created
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Status
+                      </th>
+                      <th className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
+                    {filteredOrgs.map((org) => (
+                      <tr 
+                        key={org.id} 
+                        className={`cursor-pointer transition-colors ${
+                          isDark ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'
+                        }`}
+                        onClick={() => handleSelectOrg(org)}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                              <Building2 className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+                            </div>
+                            <div>
+                              <p className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                {org.name}
+                              </p>
+                              <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                                {org.slug}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <PlanBadge plan={org.plan} />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div>
+                            <p className={`text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {formatBytes(org.storage_used_bytes)}
+                            </p>
+                            <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                              of {formatBytes(org.storage_quota_bytes)}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <Calendar className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {formatDate(org.created_at)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {org.is_active ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+                              <CheckCircle className="w-3 h-3" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400 border border-gray-500/30">
+                              Inactive
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectOrg(org);
+                            }}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors"
+                          >
+                            <FolderOpen className="w-4 h-4" />
+                            View Files
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      ) : (
+        // Files List for Selected Organization
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-500/20 rounded-xl">
+                  <FileStack className="w-6 h-6 text-blue-400" />
+                </div>
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {files.length}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Total Files
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-green-500/20 rounded-xl">
+                  <CheckCircle className="w-6 h-6 text-green-400" />
+                </div>
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {files.filter(f => f.virus_scan_status === 'clean').length}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Clean Files
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className={`p-6 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-purple-500/20 rounded-xl">
+                  <HardDrive className="w-6 h-6 text-purple-400" />
+                </div>
+                <div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {formatBytes(files.reduce((sum, f) => sum + f.size, 0))}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Total Size
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      {/* Top Organizations */}
-      <div className={`backdrop-blur-sm rounded-2xl p-6 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Top Organizations by Usage</h3>
-          <button className="text-sm text-blue-400 hover:text-blue-300">View All</button>
+          {/* Files Table */}
+          <div className={`rounded-xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <div className={`px-6 py-4 border-b flex items-center justify-between ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Files
+              </h2>
+              <button
+                onClick={() => fetchFilesForOrg(selectedOrg.id)}
+                className={`p-2 rounded-lg transition-colors ${
+                  isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-600'
+                }`}
+              >
+                <RefreshCw className={`w-5 h-5 ${loadingFiles ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            
+            {loadingFiles ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className={`w-8 h-8 animate-spin ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+              </div>
+            ) : filteredFiles.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <FileStack className={`w-12 h-12 mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+                <p className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                  {searchQuery ? 'No files match your search' : 'No files found for this organization'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        File
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Size
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Type
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Status
+                      </th>
+                      <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Uploaded
+                      </th>
+                      <th className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
+                    {filteredFiles.map((file) => {
+                      const FileIcon = getFileTypeIcon(file.content_type);
+                      return (
+                        <tr key={file.id} className={isDark ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                                <FileIcon className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+                              </div>
+                              <div>
+                                <p className={`font-medium truncate max-w-[200px] ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                  {file.filename}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {formatBytes(file.size)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {file.content_type.split('/')[1]?.toUpperCase() || file.content_type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <VirusStatusBadge status={file.virus_scan_status} isQuarantined={file.is_quarantined} />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                              {formatDate(file.created_at)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {file.download_url && !file.is_quarantined && (
+                                <>
+                                  <button
+                                    onClick={() => window.open(file.download_url, '_blank')}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="Preview"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDownload(file)}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
+                                    }`}
+                                    title="Download"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleDelete(file)}
+                                className={`p-2 rounded-lg transition-colors text-red-400 ${
+                                  isDark ? 'hover:bg-red-500/20' : 'hover:bg-red-50'
+                                }`}
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className={`text-left text-sm border-b ${isDark ? 'text-gray-400 border-gray-700' : 'text-gray-500 border-gray-200'}`}>
-                <th className="pb-4 font-medium">Organization</th>
-                <th className="pb-4 font-medium">Plan</th>
-                <th className="pb-4 font-medium">Files</th>
-                <th className="pb-4 font-medium">Storage</th>
-                <th className="pb-4 font-medium">Growth</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-200'}`}>
-              {topOrganizations.map((org, i) => (
-                <tr key={i} className={`${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
-                  <td className="py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-lg flex items-center justify-center text-white font-bold">
-                        {org.name.charAt(0)}
-                      </div>
-                      <span className={`font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{org.name}</span>
-                    </div>
-                  </td>
-                  <td className="py-4">
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      org.plan === 'enterprise' ? 'bg-purple-500/20 text-purple-400' :
-                      org.plan === 'pro' ? 'bg-blue-500/20 text-blue-400' :
-                      'bg-gray-500/20 text-gray-400'
-                    }`}>
-                      {org.plan}
-                    </span>
-                  </td>
-                  <td className={`py-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>{org.files.toLocaleString()}</td>
-                  <td className={`py-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatBytes(org.storage)}</td>
-                  <td className="py-4">
-                    <span className={`flex items-center gap-1 ${
-                      org.trend >= 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {org.trend >= 0 ? (
-                        <ArrowUpRight className="w-4 h-4" />
-                      ) : (
-                        <ArrowDownRight className="w-4 h-4" />
-                      )}
-                      {Math.abs(org.trend)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

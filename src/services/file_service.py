@@ -127,6 +127,8 @@ class FileService(BaseService[FileRepo]):
                     content_type=payload.content_type,
                     size=payload.total_size,
                     appointment_id=payload.appointment_id,
+                    organization_id=payload.organization_id,
+                    folder_id=payload.folder_id,
                     user_id=payload.user_id,
                     filename=payload.filename,
                     credential=payload.credential,
@@ -203,6 +205,8 @@ class FileService(BaseService[FileRepo]):
                 credential=payload.credential,
                 celery_task_id=celery_task_id,
                 appointment_id=payload.appointment_id,
+                organization_id=payload.organization_id,
+                folder_id=payload.folder_id,
                 user_id=payload.user_id,
                 filename=payload.filename,
                 virus_scan_status=virus_scan_status,
@@ -297,6 +301,14 @@ class FileService(BaseService[FileRepo]):
 
     async def list_all_files(self, user_id: str) -> list[tuple]:
         return self.repo.list_all_files(user_id)
+
+    async def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> list[File]:
+        """List all files across all organizations (for platform admin)."""
+        return self.repo.list_all_platform_files(skip, limit)
+
+    async def list_files_by_organization(self, organization_id: str, folder_id: str = None) -> list[File]:
+        """List all files for an organization, optionally filtered by folder."""
+        return self.repo.list_by_organization_and_folder(organization_id, folder_id)
 
     async def delete_file(self, file_id: str):
         # First get the file record to extract MinIO path info

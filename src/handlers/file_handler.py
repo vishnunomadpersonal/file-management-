@@ -64,6 +64,18 @@ class FileHandler(BaseHandler[FileService]):
                 detail_dict = parse_json_to_dict(detail, 'detail')
             else:
                 detail_dict = None
+            
+            logger.info(f"Upload complete called - user_id: {user_id}, organization_id provided: {organization_id}")
+            
+            # If organization_id is not provided, automatically assign to user's organization
+            if not organization_id:
+                from repositories.user_repository import UserRepo
+                user_repo = UserRepo(db=self.service.repo.db)
+                user = user_repo.get(id=user_id)
+                logger.info(f"Looked up user: {user}, user.organization_id: {user.organization_id if user else 'N/A'}")
+                if user and user.organization_id:
+                    organization_id = user.organization_id
+                    logger.info(f"Auto-assigned file to user's organization: {organization_id}")
                 
             payload = UploadFileDTO(upload_id=upload_id, total_chunks=total_chunks, total_size=total_size, file_extension=file_extension,
                                     content_type=content_type, detail=detail_dict, credential=credential_dict, size=size,
@@ -188,6 +200,46 @@ class FileHandler(BaseHandler[FileService]):
             file_resp = FileResponseDTO.from_orm(file)
             file_resp.download_url = download_url
             file_resp.appointment_name = appointment_name
+            # Add organization info
+            if file.organization:
+                file_resp.organization_id = file.organization.id
+                file_resp.organization_name = file.organization.name
+            # Add user info
+            if file.user:
+                file_resp.user_id = file.user.id
+                file_resp.user_name = file.user.name
+                file_resp.user_email = file.user.email
+            files_response.append(file_resp)
+        return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
+
+    async def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> JSONResponse:
+        """List all files across all organizations (for platform admin)."""
+        files = await self.service.list_all_platform_files(skip, limit)
+        files_response = []
+        for file in files:
+            download_url = await self.service.get_download_link(file)
+            file_resp = FileResponseDTO.from_orm(file)
+            file_resp.download_url = download_url
+            # Add organization info
+            if file.organization:
+                file_resp.organization_id = file.organization.id
+                file_resp.organization_name = file.organization.name
+            # Add user info
+            if file.user:
+                file_resp.user_id = file.user.id
+                file_resp.user_name = file.user.name
+                file_resp.user_email = file.user.email
+            files_response.append(file_resp)
+        return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
+
+    async def list_files_by_organization(self, organization_id: str, folder_id: str = None) -> JSONResponse:
+        """List all files for an organization."""
+        files = await self.service.list_files_by_organization(organization_id, folder_id)
+        files_response = []
+        for file in files:
+            download_url = await self.service.get_download_link(file)
+            file_resp = FileResponseDTO.from_orm(file)
+            file_resp.download_url = download_url
             files_response.append(file_resp)
         return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
 

@@ -79,6 +79,26 @@ async def list_all_files(user_id: str, file_handler: FileHandler = Depends(get_f
     return await file_handler.list_all_files(user_id)
 
 
+@router.get("/platform/all", response_model=SuccessResponse[list[FileResponseDTO]])
+async def list_all_platform_files(
+    skip: int = 0,
+    limit: int = 100,
+    file_handler: FileHandler = Depends(get_file_handler)
+):
+    """List all files across all organizations (for platform admin)."""
+    return await file_handler.list_all_platform_files(skip, limit)
+
+
+@router.get("/organization/{organization_id}", response_model=SuccessResponse[list[FileResponseDTO]])
+async def list_files_by_organization(
+    organization_id: str, 
+    folder_id: Optional[str] = None,
+    file_handler: FileHandler = Depends(get_file_handler)
+):
+    """List all files for an organization, optionally filtered by folder."""
+    return await file_handler.list_files_by_organization(organization_id, folder_id)
+
+
 @router.delete("/{file_id}", response_model=SuccessResponse)
 async def delete_file(file_id: str, file_handler: FileHandler = Depends(get_file_handler)):
     return await file_handler.delete_file(file_id)

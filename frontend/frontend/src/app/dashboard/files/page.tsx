@@ -133,6 +133,11 @@ const Icons = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
     </svg>
   ),
+  Building2: ({ className = "w-4 h-4" }: { className?: string }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
 };
 
 // ============================================================================
@@ -150,6 +155,7 @@ interface FileItem {
   contentType?: string;
   downloadUrl?: string;
   folderId?: string | null;
+  organizationName?: string | null;
 }
 
 interface BreadcrumbItem {
@@ -466,6 +472,14 @@ function FileRow({
           </div>
         </div>
       </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Icons.Building2 className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+          <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+            {file.organizationName || 'No Organization'}
+          </span>
+        </div>
+      </td>
       <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
         {file.size ? formatBytes(file.size) : '—'}
       </td>
@@ -660,6 +674,7 @@ export default function FilesPage() {
         contentType: f.content_type,
         downloadUrl: f.download_url,
         folderId: f.folder_id,
+        organizationName: f.organization_name,
       }));
       setFiles(mappedFiles);
     } catch (err) {
@@ -1031,6 +1046,7 @@ export default function FilesPage() {
                       />
                     </th>
                     <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Name</th>
+                    <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Organization</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Size</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Modified</th>
                     <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Status</th>
@@ -1059,6 +1075,12 @@ export default function FilesPage() {
                               {folder.name}
                             </p>
                           </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Icons.Building2 className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                          <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>—</span>
                         </div>
                       </td>
                       <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>

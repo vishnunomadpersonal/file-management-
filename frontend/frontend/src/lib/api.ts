@@ -404,6 +404,11 @@ export interface ApiFile {
   appointment_name?: string;
   folder_id?: string | null;
   folder_name?: string | null;
+  organization_id?: string | null;
+  organization_name?: string | null;
+  user_id?: string | null;
+  user_name?: string | null;
+  user_email?: string | null;
   virus_scan_status: 'pending' | 'scanning' | 'clean' | 'infected';
   is_quarantined: boolean;
   quarantine_reason?: string;
@@ -778,6 +783,37 @@ export const filesApi = {
     });
     const result = await handleResponse<SuccessResponse<{ status: string; progress?: number }>>(response);
     return result.data!;
+  },
+
+  /**
+   * List files by organization
+   */
+  async listByOrganization(organizationId: string, folderId?: string): Promise<ApiFile[]> {
+    const params = folderId ? `?folder_id=${folderId}` : '';
+    const response = await fetch(`${API_BASE}/file/organization/${organizationId}${params}`, {
+      headers: { ...getAuthHeaders() },
+      credentials: 'include',
+    });
+    const result = await handleResponse<SuccessResponse<ApiFile[]>>(response);
+    return (result.data || []).map(file => ({
+      ...file,
+      download_url: transformMinioUrl(file.download_url),
+    }));
+  },
+
+  /**
+   * List all files across all organizations (for platform admin)
+   */
+  async listAllPlatform(skip: number = 0, limit: number = 100): Promise<ApiFile[]> {
+    const response = await fetch(`${API_BASE}/file/platform/all?skip=${skip}&limit=${limit}`, {
+      headers: { ...getAuthHeaders() },
+      credentials: 'include',
+    });
+    const result = await handleResponse<SuccessResponse<ApiFile[]>>(response);
+    return (result.data || []).map(file => ({
+      ...file,
+      download_url: transformMinioUrl(file.download_url),
+    }));
   },
 };
 

@@ -56,6 +56,13 @@ class FileResponseDTO(BaseModel):
     folder_id: Optional[str] = None
     folder_name: Optional[str] = None
     
+    # Organization and user info
+    organization_id: Optional[str] = None
+    organization_name: Optional[str] = None
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    
     # Virus scanning fields
     virus_scan_status: str = 'pending'
     is_quarantined: bool = False

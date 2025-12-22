@@ -3,7 +3,7 @@ from .base_repository import BaseRepo
 from entities.file import File
 from entities.appointment import Appointment
 from dto.file_dto import FileBaseDTO
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
 from typing import List, Optional
 
@@ -52,11 +52,24 @@ class FileRepo(BaseRepo[File]):
         return (
             self.db
             .query(self.model, Appointment.name)
+            .options(joinedload(self.model.organization), joinedload(self.model.user))
             .outerjoin(Appointment, self.model.appointment_id == Appointment.id)
             .filter(
                 self.model.user_id == user_id,
                 self.model.virus_scan_status != 'infected'
             )
+            .all()
+        )
+
+    def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> List[File]:
+        """List all files across all organizations (for platform admin)."""
+        return (
+            self.db
+            .query(self.model)
+            .options(joinedload(self.model.organization), joinedload(self.model.user))
+            .order_by(self.model.id.desc())
+            .offset(skip)
+            .limit(limit)
             .all()
         )
 
