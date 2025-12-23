@@ -100,8 +100,8 @@ class DataDelta(db.Base):
     is_processed = Column(Boolean, default=False)
     processing_error = Column(Text)
     
-    # Relationship to file
-    file = relationship("File", backref="deltas")
+    # Relationship to file (cascade delete handled on File side)
+    file = relationship("File", back_populates="deltas")
     
     def __repr__(self):
         id_str = self.id[:8] if self.id else "NEW"

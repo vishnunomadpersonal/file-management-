@@ -725,44 +725,49 @@ export const filesApi = {
   },
 
   /**
-   * Get file download URL
+   * Get file download URL (authenticated endpoint)
+   * This URL requires authentication - user must be logged in to download
    */
   getDownloadUrl(fileId: string): string {
-    const token = localStorage.getItem('filevault_access_token');
-    return `${API_BASE}/file/get/${fileId}${token ? `?token=${token}` : ''}`;
+    // Use the authenticated download endpoint instead of presigned URLs
+    // This ensures users must be logged in to download files (like Google Cloud)
+    return `${API_BASE}/file/download/${fileId}`;
   },
 
   /**
-   * Download file directly
+   * Get file as Blob with authentication
+   * Used for previews (images, videos, PDFs) since HTML elements can't send auth headers
    */
-  async download(fileId: string, filename: string): Promise<void> {
-    // First get the file metadata with download URL
-    const response = await fetch(`${API_BASE}/file/get/${fileId}`, {
+  async getFileBlob(fileId: string): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/file/download/${fileId}`, {
       headers: { ...getAuthHeaders() },
       credentials: 'include',
     });
     
+    if (response.status === 401) {
+      throw new Error('Please log in to view this file');
+    }
+    
+    if (response.status === 403) {
+      throw new Error('You don\'t have permission to view this file');
+    }
+    
     if (!response.ok) {
-      throw new Error('Failed to get file info');
+      throw new Error('Failed to load file');
     }
 
-    const result = await response.json();
-    if (!result.success || !result.data?.download_url) {
-      throw new Error('Download URL not available');
-    }
+    return response.blob();
+  },
 
-    // Convert internal Docker URL to external URL
-    // minio:9000 -> localhost:9001
-    let downloadUrl = result.data.download_url;
-    downloadUrl = downloadUrl.replace('http://minio:9000', 'http://localhost:9001');
-
-    // Fetch the actual file content from MinIO
-    const fileResponse = await fetch(downloadUrl);
-    if (!fileResponse.ok) {
-      throw new Error('Download failed');
-    }
-
-    const blob = await fileResponse.blob();
+  /**
+   * Download file directly with authentication
+   * Unlike presigned URLs, this requires the user to be logged in
+   */
+  async download(fileId: string, filename: string): Promise<void> {
+    // Use getFileBlob to fetch the file with authentication
+    const blob = await this.getFileBlob(fileId);
+    
+    // Create download link
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -771,6 +776,38 @@ export const filesApi = {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
+  },
+
+  /**
+   * Generate a shareable link for a file
+   * The link can be shared with anyone and expires after the specified time
+   */
+  async generateShareLink(fileId: string, expiresInHours: number = 24): Promise<{
+    share_url: string;
+    expires_in_hours: number;
+    filename: string;
+    file_id: string;
+  }> {
+    const response = await fetch(`${API_BASE}/file/share/${fileId}?expires_in_hours=${expiresInHours}`, {
+      method: 'POST',
+      headers: { ...getAuthHeaders() },
+      credentials: 'include',
+    });
+    
+    if (response.status === 401) {
+      throw new Error('Please log in to generate share links');
+    }
+    
+    if (response.status === 403) {
+      throw new Error('You don\'t have permission to share this file');
+    }
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate share link');
+    }
+
+    const result = await response.json();
+    return result.data;
   },
 
   /**

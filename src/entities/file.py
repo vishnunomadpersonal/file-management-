@@ -38,4 +38,6 @@ class File(db.Base):
     user = relationship("User", back_populates="files")
     organization = relationship("Organization", back_populates="files")
     folder = relationship("Folder", back_populates="files")
+    # Data deltas (cascade delete when file is deleted)
+    deltas = relationship("DataDelta", back_populates="file", cascade="all, delete-orphan")
     # Relationship to CeleryTask is optional and no longer enforced via FK

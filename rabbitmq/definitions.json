@@ -1,0 +1,252 @@
+{
+  "rabbit_version": "3.12.0",
+  "rabbitmq_version": "3.12.0",
+  "users": [
+    {
+      "name": "root",
+      "password_hash": "hashed_password_placeholder",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": ["administrator"]
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "root",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "parameters": [],
+  "global_parameters": [
+    {
+      "name": "cluster_name",
+      "value": "filemanager-rabbitmq"
+    }
+  ],
+  "policies": [
+    {
+      "vhost": "/",
+      "name": "dlx-policy",
+      "pattern": "^(?!dead_letter|dlx).*",
+      "apply-to": "queues",
+      "definition": {
+        "dead-letter-exchange": "dlx",
+        "dead-letter-routing-key": "dead_letter"
+      },
+      "priority": 0
+    },
+    {
+      "vhost": "/",
+      "name": "ha-policy",
+      "pattern": ".*",
+      "apply-to": "queues",
+      "definition": {
+        "ha-mode": "all",
+        "ha-sync-mode": "automatic"
+      },
+      "priority": 1
+    },
+    {
+      "vhost": "/",
+      "name": "message-ttl-policy",
+      "pattern": "^(default|file_processing|notifications)$",
+      "apply-to": "queues",
+      "definition": {
+        "message-ttl": 86400000
+      },
+      "priority": 2
+    }
+  ],
+  "queues": [
+    {
+      "name": "default",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-message-ttl": 86400000
+      }
+    },
+    {
+      "name": "dead_letter",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-message-ttl": 604800000
+      }
+    },
+    {
+      "name": "high_priority",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-max-priority": 10,
+        "x-message-ttl": 3600000
+      }
+    },
+    {
+      "name": "low_priority",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-message-ttl": 259200000
+      }
+    },
+    {
+      "name": "file_processing",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-message-ttl": 21600000
+      }
+    },
+    {
+      "name": "virus_scan",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-max-priority": 10,
+        "x-message-ttl": 7200000
+      }
+    },
+    {
+      "name": "notifications",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dlx",
+        "x-dead-letter-routing-key": "dead_letter",
+        "x-message-ttl": 3600000
+      }
+    },
+    {
+      "name": "retry",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "default",
+        "x-dead-letter-routing-key": "default",
+        "x-message-ttl": 60000
+      }
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "default",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "priority",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "default",
+      "vhost": "/",
+      "destination": "default",
+      "destination_type": "queue",
+      "routing_key": "default",
+      "arguments": {}
+    },
+    {
+      "source": "dlx",
+      "vhost": "/",
+      "destination": "dead_letter",
+      "destination_type": "queue",
+      "routing_key": "dead_letter",
+      "arguments": {}
+    },
+    {
+      "source": "priority",
+      "vhost": "/",
+      "destination": "high_priority",
+      "destination_type": "queue",
+      "routing_key": "high",
+      "arguments": {}
+    },
+    {
+      "source": "priority",
+      "vhost": "/",
+      "destination": "low_priority",
+      "destination_type": "queue",
+      "routing_key": "low",
+      "arguments": {}
+    },
+    {
+      "source": "default",
+      "vhost": "/",
+      "destination": "file_processing",
+      "destination_type": "queue",
+      "routing_key": "file.process",
+      "arguments": {}
+    },
+    {
+      "source": "default",
+      "vhost": "/",
+      "destination": "virus_scan",
+      "destination_type": "queue",
+      "routing_key": "file.scan",
+      "arguments": {}
+    },
+    {
+      "source": "default",
+      "vhost": "/",
+      "destination": "notifications",
+      "destination_type": "queue",
+      "routing_key": "notification",
+      "arguments": {}
+    },
+    {
+      "source": "default",
+      "vhost": "/",
+      "destination": "retry",
+      "destination_type": "queue",
+      "routing_key": "retry",
+      "arguments": {}
+    }
+  ]
+}

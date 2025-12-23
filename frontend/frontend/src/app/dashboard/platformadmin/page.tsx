@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { organizationsApi, filesApi, ApiOrganization, ApiFile } from '@/lib/api';
+import FilePreviewModal, { PreviewFile } from '@/components/FilePreviewModal';
 import {
   Building2,
   FileStack,
@@ -124,6 +125,7 @@ export default function PlatformAdminDashboard() {
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   // Fetch organizations
   const fetchOrganizations = useCallback(async () => {
@@ -190,6 +192,18 @@ export default function PlatformAdminDashboard() {
     } catch (err) {
       console.error('Download failed:', err);
     }
+  };
+
+  // Preview file
+  const handlePreview = (file: ApiFile) => {
+    setPreviewFile({
+      id: file.id,
+      name: file.filename,
+      type: file.content_type,
+      size: file.size,
+      contentType: file.content_type,
+      status: file.is_quarantined ? 'quarantined' : file.virus_scan_status === 'clean' ? 'clean' : 'scanning',
+    });
   };
 
   // Delete file
@@ -593,10 +607,10 @@ export default function PlatformAdminDashboard() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {file.download_url && !file.is_quarantined && (
+                              {!file.is_quarantined && (
                                 <>
                                   <button
-                                    onClick={() => window.open(file.download_url, '_blank')}
+                                    onClick={() => handlePreview(file)}
                                     className={`p-2 rounded-lg transition-colors ${
                                       isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
                                     }`}
@@ -636,6 +650,17 @@ export default function PlatformAdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        file={previewFile}
+        isOpen={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDelete={async (fileId) => {
+          await filesApi.delete(fileId);
+          setFiles(prev => prev.filter(f => f.id !== fileId));
+        }}
+      />
     </div>
   );
 }

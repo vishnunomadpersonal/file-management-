@@ -1,8 +1,64 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { filesApi } from '@/lib/api';
+
+// ============================================================================
+// Custom Hook for Authenticated File URL
+// ============================================================================
+
+/**
+ * Hook to fetch a file with authentication and create a blob URL for preview.
+ * HTML elements like <img>, <video>, <iframe> can't send auth headers,
+ * so we fetch the file first, then create a blob URL.
+ */
+function useAuthenticatedFileUrl(fileId: string, contentType: string) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    let objectUrl: string | null = null;
+
+    const fetchFile = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Fetch file through authenticated endpoint
+        const blob = await filesApi.getFileBlob(fileId);
+        
+        if (!isMounted) return;
+        
+        // Create a blob URL that can be used in <img>, <video>, etc.
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      } catch (err) {
+        if (!isMounted) return;
+        console.error('Failed to fetch file for preview:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load file');
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchFile();
+
+    // Cleanup: revoke the blob URL when component unmounts
+    return () => {
+      isMounted = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [fileId, contentType]);
+
+  return { blobUrl, loading, error };
+}
 
 // ============================================================================
 // Icons
@@ -17,6 +73,26 @@ const Icons = {
   Download: ({ className = "w-5 h-5" }: { className?: string }) => (
     <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+  ),
+  Share: ({ className = "w-5 h-5" }: { className?: string }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+    </svg>
+  ),
+  Link: ({ className = "w-5 h-5" }: { className?: string }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+    </svg>
+  ),
+  Check: ({ className = "w-5 h-5" }: { className?: string }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+    </svg>
+  ),
+  Copy: ({ className = "w-5 h-5" }: { className?: string }) => (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
     </svg>
   ),
   Trash: ({ className = "w-5 h-5" }: { className?: string }) => (
@@ -109,14 +185,13 @@ function getFileCategory(contentType: string, filename: string): 'image' | 'vide
 // Image Preview Component
 // ============================================================================
 
-function ImagePreview({ url, filename }: { url: string; filename: string }) {
+function ImagePreview({ fileId, filename, contentType }: { fileId: string; filename: string; contentType: string }) {
   const [zoom, setZoom] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const { blobUrl, loading, error } = useAuthenticatedFileUrl(fileId, contentType);
 
   return (
     <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-black/50">
-      {loading && !error && (
+      {loading && (
         <div className="absolute inset-0 flex items-center justify-center">
           <Icons.Spinner className="w-12 h-12 text-white" />
         </div>
@@ -125,36 +200,37 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
         <div className="text-center text-white">
           <Icons.File className="w-16 h-16 mx-auto mb-4 text-gray-400" />
           <p>Failed to load image</p>
+          <p className="text-sm text-gray-400 mt-2">{error}</p>
         </div>
-      ) : (
+      ) : blobUrl ? (
         <img
-          src={url}
+          src={blobUrl}
           alt={filename}
           className="max-h-full max-w-full object-contain transition-transform duration-200"
           style={{ transform: `scale(${zoom})` }}
-          onLoad={() => setLoading(false)}
-          onError={() => { setLoading(false); setError(true); }}
         />
-      )}
+      ) : null}
       
       {/* Zoom Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/70 rounded-full px-4 py-2">
-        <button
-          onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}
-          className="p-1 text-white hover:text-gray-300 transition-colors"
-          disabled={zoom <= 0.5}
-        >
-          <Icons.ZoomOut />
-        </button>
-        <span className="text-white text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
-        <button
-          onClick={() => setZoom(z => Math.min(3, z + 0.25))}
-          className="p-1 text-white hover:text-gray-300 transition-colors"
-          disabled={zoom >= 3}
-        >
-          <Icons.ZoomIn />
-        </button>
-      </div>
+      {blobUrl && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/70 rounded-full px-4 py-2">
+          <button
+            onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}
+            className="p-1 text-white hover:text-gray-300 transition-colors"
+            disabled={zoom <= 0.5}
+          >
+            <Icons.ZoomOut />
+          </button>
+          <span className="text-white text-sm min-w-[60px] text-center">{Math.round(zoom * 100)}%</span>
+          <button
+            onClick={() => setZoom(z => Math.min(3, z + 0.25))}
+            className="p-1 text-white hover:text-gray-300 transition-colors"
+            disabled={zoom >= 3}
+          >
+            <Icons.ZoomIn />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -163,17 +239,41 @@ function ImagePreview({ url, filename }: { url: string; filename: string }) {
 // Video Preview Component
 // ============================================================================
 
-function VideoPreview({ url, contentType }: { url: string; contentType: string }) {
+function VideoPreview({ fileId, contentType }: { fileId: string; contentType: string }) {
+  const { blobUrl, loading, error } = useAuthenticatedFileUrl(fileId, contentType);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-black">
+        <Icons.Spinner className="w-12 h-12 text-white" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-black">
+        <div className="text-center text-white">
+          <Icons.File className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+          <p>Failed to load video</p>
+          <p className="text-sm text-gray-400 mt-2">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex items-center justify-center bg-black">
-      <video
-        controls
-        className="max-h-full max-w-full"
-        autoPlay={false}
-      >
-        <source src={url} type={contentType} />
-        Your browser does not support video playback.
-      </video>
+      {blobUrl && (
+        <video
+          controls
+          className="max-h-full max-w-full"
+          autoPlay={false}
+        >
+          <source src={blobUrl} type={contentType} />
+          Your browser does not support video playback.
+        </video>
+      )}
     </div>
   );
 }
@@ -182,17 +282,40 @@ function VideoPreview({ url, contentType }: { url: string; contentType: string }
 // Audio Preview Component
 // ============================================================================
 
-function AudioPreview({ url, contentType, filename }: { url: string; contentType: string; filename: string }) {
+function AudioPreview({ fileId, contentType, filename }: { fileId: string; contentType: string; filename: string }) {
   const { isDark } = useTheme();
+  const { blobUrl, loading, error } = useAuthenticatedFileUrl(fileId, contentType);
+
+  if (loading) {
+    return (
+      <div className={`flex-1 flex items-center justify-center ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
+        <Icons.Spinner className={`w-12 h-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={`flex-1 flex items-center justify-center ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
+        <div className="text-center">
+          <Icons.File className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
+          <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Failed to load audio</p>
+          <p className="text-sm text-gray-400 mt-2">{error}</p>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className={`flex-1 flex flex-col items-center justify-center p-8 ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
       <Icons.File className={`w-24 h-24 mb-6 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
       <p className={`text-lg font-medium mb-6 ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>{filename}</p>
-      <audio controls className="w-full max-w-md">
-        <source src={url} type={contentType} />
-        Your browser does not support audio playback.
-      </audio>
+      {blobUrl && (
+        <audio controls className="w-full max-w-md">
+          <source src={blobUrl} type={contentType} />
+          Your browser does not support audio playback.
+        </audio>
+      )}
     </div>
   );
 }
@@ -201,22 +324,38 @@ function AudioPreview({ url, contentType, filename }: { url: string; contentType
 // PDF Preview Component
 // ============================================================================
 
-function PDFPreview({ url, filename }: { url: string; filename: string }) {
-  const [loading, setLoading] = useState(true);
+function PDFPreview({ fileId, filename, contentType }: { fileId: string; filename: string; contentType: string }) {
+  const { blobUrl, loading, error } = useAuthenticatedFileUrl(fileId, contentType);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-900">
+        <Icons.Spinner className="w-12 h-12 text-white" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-900">
+        <div className="text-center text-white">
+          <Icons.File className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+          <p>Failed to load PDF</p>
+          <p className="text-sm text-gray-400 mt-2">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col bg-gray-900">
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-          <Icons.Spinner className="w-12 h-12 text-white" />
-        </div>
+      {blobUrl && (
+        <iframe
+          src={`${blobUrl}#toolbar=1&navpanes=0`}
+          title={filename}
+          className="flex-1 w-full"
+        />
       )}
-      <iframe
-        src={`${url}#toolbar=1&navpanes=0`}
-        title={filename}
-        className="flex-1 w-full"
-        onLoad={() => setLoading(false)}
-      />
     </div>
   );
 }
@@ -225,27 +364,31 @@ function PDFPreview({ url, filename }: { url: string; filename: string }) {
 // Text Preview Component
 // ============================================================================
 
-function TextPreview({ url, filename }: { url: string; filename: string }) {
+function TextPreview({ fileId, filename, contentType }: { fileId: string; filename: string; contentType: string }) {
   const { isDark } = useTheme();
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchContent = async () => {
       try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Failed to fetch');
-        const text = await response.text();
+        setLoading(true);
+        setError(null);
+        
+        // Fetch file through authenticated endpoint
+        const blob = await filesApi.getFileBlob(fileId);
+        const text = await blob.text();
         setContent(text);
-      } catch {
-        setError(true);
+      } catch (err) {
+        console.error('Failed to fetch text content:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load file');
       } finally {
         setLoading(false);
       }
     };
     fetchContent();
-  }, [url]);
+  }, [fileId]);
 
   if (loading) {
     return (
@@ -261,6 +404,7 @@ function TextPreview({ url, filename }: { url: string; filename: string }) {
         <div className="text-center">
           <Icons.File className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-gray-600' : 'text-gray-400'}`} />
           <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Failed to load file content</p>
+          <p className="text-sm text-gray-400 mt-2">{error}</p>
         </div>
       </div>
     );
@@ -301,6 +445,186 @@ function OtherFilePreview({ file, onDownload }: { file: PreviewFile; onDownload?
           Download File
         </button>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Share Link Modal
+// ============================================================================
+
+function ShareLinkModal({
+  isOpen,
+  file,
+  onClose,
+}: {
+  isOpen: boolean;
+  file: PreviewFile | null;
+  onClose: () => void;
+}) {
+  const { isDark } = useTheme();
+  const [expiryHours, setExpiryHours] = useState(24);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerateLink = async () => {
+    if (!file) return;
+    
+    setLoading(true);
+    setError(null);
+    setCopied(false);
+    
+    try {
+      const result = await filesApi.generateShareLink(file.id, expiryHours);
+      setShareUrl(result.share_url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate share link');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!shareUrl) return;
+    
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = shareUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleClose = () => {
+    setShareUrl(null);
+    setError(null);
+    setCopied(false);
+    onClose();
+  };
+
+  if (!isOpen || !file) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70" onClick={handleClose} />
+      <div className={`relative w-full max-w-md rounded-2xl p-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className={`text-lg font-bold ${isDark ? 'text-gray-100' : 'text-gray-900'}`}>
+            Share File
+          </h3>
+          <button onClick={handleClose} className={`p-1 rounded-lg ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}>
+            <Icons.X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <p className={`mb-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+          Generate a shareable link for <strong className={isDark ? 'text-gray-200' : 'text-gray-800'}>{file.name}</strong>. 
+          Anyone with the link can download this file.
+        </p>
+
+        {!shareUrl ? (
+          <>
+            {/* Expiry Selection */}
+            <div className="mb-4">
+              <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                Link expires in:
+              </label>
+              <select
+                value={expiryHours}
+                onChange={(e) => setExpiryHours(Number(e.target.value))}
+                className={`w-full px-3 py-2 rounded-lg border ${
+                  isDark 
+                    ? 'bg-gray-700 border-gray-600 text-gray-200' 
+                    : 'bg-white border-gray-300 text-gray-900'
+                }`}
+              >
+                <option value={1}>1 hour</option>
+                <option value={6}>6 hours</option>
+                <option value={24}>24 hours</option>
+                <option value={72}>3 days</option>
+                <option value={168}>7 days</option>
+              </select>
+            </div>
+
+            {error && (
+              <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={handleGenerateLink}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? (
+                <Icons.Spinner className="w-5 h-5" />
+              ) : (
+                <Icons.Link />
+              )}
+              {loading ? 'Generating...' : 'Generate Share Link'}
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Share URL Display */}
+            <div className={`mb-4 p-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Icons.Link className={`w-4 h-4 ${isDark ? 'text-green-400' : 'text-green-600'}`} />
+                <span className={`text-sm font-medium ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+                  Link generated!
+                </span>
+              </div>
+              <p className={`text-xs break-all ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                {shareUrl}
+              </p>
+            </div>
+
+            <div className={`mb-4 p-3 rounded-lg ${isDark ? 'bg-yellow-500/10 border border-yellow-500/30' : 'bg-yellow-50 border border-yellow-200'}`}>
+              <p className={`text-xs ${isDark ? 'text-yellow-400' : 'text-yellow-700'}`}>
+                ⚠️ This link will expire in {expiryHours} hour{expiryHours > 1 ? 's' : ''}. Anyone with this link can download the file.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleCopy}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-colors ${
+                  copied
+                    ? 'bg-green-600 text-white'
+                    : isDark
+                    ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                }`}
+              >
+                {copied ? <Icons.Check /> : <Icons.Copy />}
+                {copied ? 'Copied!' : 'Copy Link'}
+              </button>
+              <button
+                onClick={() => setShareUrl(null)}
+                className={`px-4 py-3 rounded-xl font-medium transition-colors ${
+                  isDark
+                    ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                }`}
+              >
+                New Link
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -372,6 +696,7 @@ export default function FilePreviewModal({
 }: FilePreviewModalProps) {
   const { isDark } = useTheme();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [shareStatus, setShareStatus] = useState<'idle' | 'loading' | 'copied'>('idle');
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -400,7 +725,6 @@ export default function FilePreviewModal({
   if (!isOpen || !file) return null;
 
   const fileCategory = getFileCategory(file.contentType, file.name);
-  const downloadUrl = file.downloadUrl || filesApi.getDownloadUrl(file.id);
 
   const handleDownload = async () => {
     if (downloading) return;
@@ -415,6 +739,20 @@ export default function FilePreviewModal({
       console.error('Download failed:', error);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (shareStatus === 'loading') return;
+    setShareStatus('loading');
+    try {
+      const response = await filesApi.generateShareLink(file.id, 24); // 24 hour link
+      await navigator.clipboard.writeText(response.share_url);
+      setShareStatus('copied');
+      setTimeout(() => setShareStatus('idle'), 2000); // Reset after 2 seconds
+    } catch (error) {
+      console.error('Share link generation failed:', error);
+      setShareStatus('idle');
     }
   };
 
@@ -453,15 +791,15 @@ export default function FilePreviewModal({
 
     switch (fileCategory) {
       case 'image':
-        return <ImagePreview url={downloadUrl} filename={file.name} />;
+        return <ImagePreview fileId={file.id} filename={file.name} contentType={file.contentType} />;
       case 'video':
-        return <VideoPreview url={downloadUrl} contentType={file.contentType} />;
+        return <VideoPreview fileId={file.id} contentType={file.contentType} />;
       case 'audio':
-        return <AudioPreview url={downloadUrl} contentType={file.contentType} filename={file.name} />;
+        return <AudioPreview fileId={file.id} contentType={file.contentType} filename={file.name} />;
       case 'pdf':
-        return <PDFPreview url={downloadUrl} filename={file.name} />;
+        return <PDFPreview fileId={file.id} filename={file.name} contentType={file.contentType} />;
       case 'text':
-        return <TextPreview url={downloadUrl} filename={file.name} />;
+        return <TextPreview fileId={file.id} filename={file.name} contentType={file.contentType} />;
       default:
         return <OtherFilePreview file={file} onDownload={handleDownload} />;
     }
@@ -492,18 +830,40 @@ export default function FilePreviewModal({
 
           <div className="flex items-center gap-2">
             {file.status !== 'quarantined' && (
-              <button
-                onClick={handleDownload}
-                disabled={downloading}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  isDark 
-                    ? 'bg-gray-800 text-white hover:bg-gray-700' 
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {downloading ? <Icons.Spinner className="w-5 h-5" /> : <Icons.Download />}
-                Download
-              </button>
+              <>
+                <button
+                  onClick={handleShare}
+                  disabled={shareStatus === 'loading'}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    shareStatus === 'copied'
+                      ? 'bg-green-600 text-white'
+                      : isDark 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                        : 'bg-blue-500 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  {shareStatus === 'loading' ? (
+                    <Icons.Spinner className="w-5 h-5" />
+                  ) : shareStatus === 'copied' ? (
+                    <Icons.Check />
+                  ) : (
+                    <Icons.Link />
+                  )}
+                  {shareStatus === 'copied' ? 'Copied!' : 'Share'}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  disabled={downloading}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                    isDark 
+                      ? 'bg-gray-800 text-white hover:bg-gray-700' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {downloading ? <Icons.Spinner className="w-5 h-5" /> : <Icons.Download />}
+                  Download
+                </button>
+              </>
             )}
             {canDelete && onDelete && (
               <button

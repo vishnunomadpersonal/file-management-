@@ -28,12 +28,28 @@ class MinioStorage:
         return cls._instance
 
     def __connect(self) -> None:
+        # Internal client for actual S3 operations (file uploads, bucket management, etc.)
         self.client = Minio(
             config.MINIO_ENDPOINT,
             access_key=config.MINIO_ACCESS_KEY,
             secret_key=config.MINIO_SECRET_KEY,
             secure=False,
+            region="us-east-1",  # Set default region to avoid network calls for region lookup
         )
+        
+        # External client for generating presigned URLs that will work from browser
+        # Uses external endpoint (localhost:9001) so signatures match when browser accesses
+        if config.MINIO_EXTERNAL_ENDPOINT:
+            self.external_client = Minio(
+                config.MINIO_EXTERNAL_ENDPOINT,
+                access_key=config.MINIO_ACCESS_KEY,
+                secret_key=config.MINIO_SECRET_KEY,
+                secure=getattr(config, 'MINIO_EXTERNAL_SECURE', False),
+                region="us-east-1",  # Set default region to avoid network calls for region lookup
+            )
+        else:
+            self.external_client = None
+            
         self.public_bucket = config.MINIO_PUBLIC_BUCKET
         self.private_bucket = config.MINIO_PRIVATE_BUCKET
 
@@ -128,29 +144,12 @@ class MinioStorage:
         :param extra_query_params: Extra query parameters for advanced usage.
         :return: URL string.
         """
-        # If an external endpoint is configured, generate the signature using that endpoint
-        # so the Host header in the signature matches what the browser will request.
-        if config.MINIO_EXTERNAL_ENDPOINT:
-            # Always use HTTPS when generating browser-facing URLs in production
-            external_client = Minio(
-                config.MINIO_EXTERNAL_ENDPOINT,
-                access_key=config.MINIO_ACCESS_KEY,
-                secret_key=config.MINIO_SECRET_KEY,
-                secure=True,
-            )
-            return external_client.get_presigned_url(
-                method,
-                bucket_name,
-                object_name,
-                expires,
-                response_headers,
-                request_date,
-                version_id,
-                extra_query_params,
-            )
-
-        # Default: sign with the internal client/endpoint
-        return self.client.get_presigned_url(
+        # Use external client for presigned URLs if configured
+        # This ensures the signature matches the host the browser will access
+        # The external client has region set, so it won't make network calls
+        client = self.external_client if self.external_client else self.client
+        
+        return client.get_presigned_url(
             method,
             bucket_name,
             object_name,
@@ -172,6 +171,26 @@ class MinioStorage:
         :param object_name: Object name in the bucket.
         """
         return self.client.remove_object(bucket_name, object_name)
+
+    def get_object(self, bucket_name: str, object_name: str):
+        """
+        Get an object from a bucket. Returns a response object that can be read/streamed.
+
+        :param bucket_name: Name of the bucket.
+        :param object_name: Object name in the bucket.
+        :return: urllib3.response.HTTPResponse object with file data.
+        """
+        return self.client.get_object(bucket_name, object_name)
+
+    def stat_object(self, bucket_name: str, object_name: str):
+        """
+        Get object metadata without downloading the object.
+
+        :param bucket_name: Name of the bucket.
+        :param object_name: Object name in the bucket.
+        :return: Object metadata including size, content_type, etc.
+        """
+        return self.client.stat_object(bucket_name, object_name)
 
 
 minioStorage = MinioStorage()

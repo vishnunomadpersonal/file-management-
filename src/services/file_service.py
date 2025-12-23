@@ -24,10 +24,24 @@ from datetime import datetime
 from urllib.parse import quote
 import asyncio
 
+# Event-Driven Architecture imports
+from events import (
+    publish_event,
+    FileUploadStartedEvent,
+    FileUploadCompletedEvent,
+    FileUploadFailedEvent,
+    VirusScanRequestedEvent,
+    FileDeletedEvent,
+    FileSharedEvent,
+    FileDownloadedEvent,
+)
+
 logger = logging.getLogger(__name__)
 
 # Flag to enable/disable ML pipeline auto-trigger
 ML_PIPELINE_ENABLED = os.environ.get('ML_PIPELINE_ENABLED', 'true').lower() == 'true'
+# Flag to enable event-driven architecture
+EVENT_DRIVEN_ENABLED = os.environ.get('EVENT_DRIVEN_ENABLED', 'true').lower() == 'true'
 
 class FileService(BaseService[FileRepo]):
     def __init__(self, repo: FileRepo) -> None:
@@ -220,6 +234,31 @@ class FileService(BaseService[FileRepo]):
             file = self.repo.create_file(file_dto)
             logger.info(f"File record created successfully with ID: {file.id}")
             
+            # ========================================================
+            # EVENT-DRIVEN: Publish file.upload.completed event
+            # This triggers all downstream consumers asynchronously:
+            # - VirusScannerConsumer: Scans file for viruses
+            # - WebSocketConsumer: Pushes real-time update to frontend
+            # - AuditLogConsumer: Logs the upload event
+            # - NotificationConsumer: Sends notifications if needed
+            # ========================================================
+            if EVENT_DRIVEN_ENABLED and not is_quarantined:
+                try:
+                    publish_event(FileUploadCompletedEvent(
+                        file_id=str(file.id),
+                        filename=file.filename,
+                        content_type=file.content_type,
+                        size=file.size,
+                        user_id=str(payload.user_id),
+                        organization_id=str(payload.organization_id) if payload.organization_id else "",
+                        bucket=bucket,
+                        object_name=filename,
+                        storage_path=file.path,
+                    ))
+                    logger.info(f"Published file.upload.completed event for file {file.id}")
+                except Exception as e:
+                    logger.error(f"Failed to publish upload event (non-fatal): {e}")
+            
             # Auto-trigger ML pipeline for data files (async, non-blocking)
             if not is_quarantined:
                 asyncio.create_task(self._trigger_ml_pipeline(file))
@@ -310,7 +349,7 @@ class FileService(BaseService[FileRepo]):
         """List all files for an organization, optionally filtered by folder."""
         return self.repo.list_by_organization_and_folder(organization_id, folder_id)
 
-    async def delete_file(self, file_id: str):
+    async def delete_file(self, file_id: str, deleted_by: str = None):
         # First get the file record to extract MinIO path info
         file = self.repo.get_file(file_id)
         if file:
@@ -325,7 +364,25 @@ class FileService(BaseService[FileRepo]):
                 # Continue with DB deletion even if MinIO deletion fails
             
             # Delete from database
-            return self.repo.delete_file(file_id)
+            result = self.repo.delete_file(file_id)
+            
+            # ========================================================
+            # EVENT-DRIVEN: Publish file.deleted event
+            # ========================================================
+            if EVENT_DRIVEN_ENABLED:
+                try:
+                    publish_event(FileDeletedEvent(
+                        file_id=str(file_id),
+                        filename=file.filename,
+                        user_id=str(file.user_id),
+                        deleted_by=deleted_by or str(file.user_id),
+                        reason="user_requested"
+                    ))
+                    logger.info(f"Published file.deleted event for file {file_id}")
+                except Exception as e:
+                    logger.error(f"Failed to publish delete event (non-fatal): {e}")
+            
+            return result
         return None
     async def get_file(self, id: id, credential=Dict[str, Any]) -> File:
         file = self.repo.get_file(id=id)

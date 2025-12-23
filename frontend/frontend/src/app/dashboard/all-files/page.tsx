@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { filesApi, ApiFile } from '@/lib/api';
+import FilePreviewModal, { PreviewFile } from '@/components/FilePreviewModal';
 import {
   FileStack,
   Search,
@@ -101,6 +102,7 @@ export default function AllFilesPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -141,6 +143,17 @@ export default function AllFilesPage() {
     } catch (err) {
       console.error('Download failed:', err);
     }
+  };
+
+  const handlePreview = (file: ApiFile) => {
+    setPreviewFile({
+      id: file.id,
+      name: file.filename,
+      type: file.content_type,
+      size: file.size,
+      contentType: file.content_type,
+      status: file.is_quarantined ? 'quarantined' : file.virus_scan_status === 'clean' ? 'clean' : 'scanning',
+    });
   };
 
   const handleDelete = async (file: ApiFile) => {
@@ -322,10 +335,10 @@ export default function AllFilesPage() {
                 <td className="px-6 py-4">{getStatusBadge(file, isDark)}</td>
                 <td className="px-6 py-4 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    {file.download_url && !file.is_quarantined && (
+                    {!file.is_quarantined && (
                       <>
                         <button 
-                          onClick={() => window.open(file.download_url, '_blank')}
+                          onClick={() => handlePreview(file)}
                           className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
                           title="Preview"
                         >
@@ -355,6 +368,17 @@ export default function AllFilesPage() {
         </table>
         )}
       </div>
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        file={previewFile}
+        isOpen={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        onDelete={async (fileId) => {
+          await filesApi.delete(fileId);
+          setFiles(prev => prev.filter(f => f.id !== fileId));
+        }}
+      />
     </div>
   );
 }

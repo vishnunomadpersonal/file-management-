@@ -179,17 +179,26 @@ services:
         start_period: 30s
 
   rabbitmq:
-    image: rabbitmq
+    image: rabbitmq:3-management  # Includes management UI
     container_name: rabbitmq
     env_file:
       - .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-root}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-password}
     ports:
-      - "5672:5672"   # RabbitMQ main port
-      - "15672:15672" # RabbitMQ management UI
+      - "5672:5672"   # RabbitMQ AMQP port
+      - "15672:15672" # RabbitMQ Management UI
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq #using named volume
+      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - filemanager
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
   
   clamav:
     image: clamav/clamav:latest

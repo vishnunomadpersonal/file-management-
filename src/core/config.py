@@ -14,8 +14,8 @@ class Config:
     MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
     MINIO_URL = os.getenv("MINIO_URL")
     # Optional: external endpoint used when generating presigned URLs for browser access.
-    # Always signed with HTTPS for production use.
     MINIO_EXTERNAL_ENDPOINT = os.getenv("MINIO_EXTERNAL_ENDPOINT")
+    MINIO_EXTERNAL_SECURE = os.getenv("MINIO_EXTERNAL_SECURE", "true").lower() == "true"
     MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
     MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
     MINIO_PUBLIC_BUCKET = os.getenv('MINIO_PUBLIC_BUCKET', 'public')
