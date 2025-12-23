@@ -249,19 +249,23 @@ async def download_file(
             except Exception as e:
                 logger.error(f"Failed to publish preview/download event (non-fatal): {e}")
         
-        # Read the entire file content to avoid streaming issues with Content-Length
-        file_content = response.read()
-        response.close()
-        response.release_conn()
+        # Stream the file to the client (memory efficient for large files)
+        def iterfile():
+            try:
+                for chunk in response.stream(32 * 1024):  # 32KB chunks
+                    yield chunk
+            finally:
+                response.close()
+                response.release_conn()
         
-        # Return as a regular response with correct content length
-        return Response(
-            content=file_content,
+        # Use StreamingResponse with Content-Length from MinIO stat (not DB)
+        return StreamingResponse(
+            iterfile(),
             media_type=content_type,
             headers={
                 "Content-Disposition": disposition,
-                "Content-Length": str(len(file_content)),
-                "Cache-Control": "private, max-age=3600",  # Cache for 1 hour, but private
+                "Content-Length": str(actual_size),  # From MinIO stat - accurate!
+                "Cache-Control": "private, max-age=3600",
             }
         )
         
