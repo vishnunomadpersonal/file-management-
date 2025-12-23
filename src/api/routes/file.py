@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, Form, Request, Depends, HTTPException, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from infrastructure.db.mysql import mysql as db
 from repositories.file_repository import FileRepo
@@ -201,15 +201,23 @@ async def download_file(
     object_name = "/".join(file.path.split("/")[1:])
     
     try:
-        # Get file from MinIO
+        # Get file from MinIO - stat first to get actual size
+        stat = minioStorage.stat_object(bucket_name, object_name)
+        actual_size = stat.size
+        
+        # Get file content from MinIO
         response = minioStorage.get_object(bucket_name, object_name)
         
         # Determine content disposition (inline for viewable types, attachment for download)
         content_type = file.content_type or "application/octet-stream"
         filename = file.filename or object_name.split("/")[-1]
         
-        # Use inline for images and PDFs, attachment for others
-        is_preview = content_type.lower().startswith("image/") or content_type.lower() == "application/pdf"
+        # Use inline for images and PDFs, text files - attachment for others
+        is_preview = (
+            content_type.lower().startswith("image/") or 
+            content_type.lower() == "application/pdf" or
+            content_type.lower().startswith("text/")
+        )
         if is_preview:
             disposition = f'inline; filename="{filename}"; filename*=UTF-8\'\'{quote(filename)}'
         else:
@@ -241,21 +249,18 @@ async def download_file(
             except Exception as e:
                 logger.error(f"Failed to publish preview/download event (non-fatal): {e}")
         
-        # Stream the file to the client
-        def iterfile():
-            try:
-                for chunk in response.stream(32 * 1024):  # 32KB chunks
-                    yield chunk
-            finally:
-                response.close()
-                response.release_conn()
+        # Read the entire file content to avoid streaming issues with Content-Length
+        file_content = response.read()
+        response.close()
+        response.release_conn()
         
-        return StreamingResponse(
-            iterfile(),
+        # Return as a regular response with correct content length
+        return Response(
+            content=file_content,
             media_type=content_type,
             headers={
                 "Content-Disposition": disposition,
-                "Content-Length": str(file.size) if file.size else "",
+                "Content-Length": str(len(file_content)),
                 "Cache-Control": "private, max-age=3600",  # Cache for 1 hour, but private
             }
         )
