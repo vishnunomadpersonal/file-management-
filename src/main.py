@@ -6,6 +6,7 @@ from api.routes import (
 )
 from api.routes.organizations import router as organizations_router
 from api.routes.folder import folder_router
+from api.routes.chatbot import router as chatbot_router
 from exceptions.handler import ExceptionHandler
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -124,6 +125,7 @@ def create_application() -> FastAPI:
     app.include_router(mcp.router)       # MCP Server routes (Document Chat)
     app.include_router(model_versioning.router)  # Model versioning routes
     app.include_router(feedback.router)  # Feedback & continuous learning routes
+    app.include_router(chatbot_router)   # AI Chatbot routes (REST + WebSocket)
     ExceptionHandler(app)
     
     # Add request timing middleware

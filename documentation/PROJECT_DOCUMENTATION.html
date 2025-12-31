@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Management Platform - Technical Documentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #fff;
+        }
+        
+        h1 {
+            color: #1a1a2e;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+        }
+        
+        h2 {
+            color: #16213e;
+            font-size: 1.8em;
+            margin-top: 40px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+        }
+        
+        h3 {
+            color: #0f3460;
+            font-size: 1.3em;
+            margin-top: 25px;
+            margin-bottom: 10px;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.95em;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tr:hover {
+            background-color: #e8f4f8;
+        }
+        
+        code {
+            background: #f4f4f4;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            color: #e83e8c;
+        }
+        
+        pre {
+            background: #1a1a2e;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+        
+        .highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .highlight h3 {
+            color: white;
+            margin-top: 0;
+        }
+        
+        .box {
+            border: 1px solid #e0e0e0;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            background: #fafafa;
+        }
+        
+        .architecture-box {
+            background: #f0f4ff;
+            border: 2px solid #667eea;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+            font-size: 0.8em;
+            line-height: 1.4;
+        }
+        
+        ul, ol {
+            margin: 15px 0 15px 30px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+        
+        .badge-primary { background: #667eea; color: white; }
+        .badge-success { background: #48bb78; color: white; }
+        .badge-warning { background: #ed8936; color: white; }
+        .badge-danger { background: #e53e3e; color: white; }
+        
+        .page-break {
+            page-break-after: always;
+        }
+        
+        .toc {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+        
+        .toc h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        
+        .toc ul {
+            list-style: none;
+            margin-left: 0;
+        }
+        
+        .toc li {
+            padding: 5px 0;
+            border-bottom: 1px dotted #ddd;
+        }
+        
+        .toc a {
+            color: #333;
+            text-decoration: none;
+        }
+        
+        .toc a:hover {
+            color: #667eea;
+        }
+        
+        footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        @media print {
+            body {
+                padding: 20px;
+            }
+            .page-break {
+                page-break-after: always;
+            }
+            pre {
+                white-space: pre-wrap;
+                word-wrap: break-word;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📁 File Management Platform</h1>
+    <p style="font-size: 1.2em; color: #666;">Enterprise Document Intelligence with Incremental ML Pipeline</p>
+    <p><strong>Version:</strong> 1.0.0 | <strong>Date:</strong> December 2025</p>
+
+    <div class="toc">
+        <h3>📑 Table of Contents</h3>
+        <ul>
+            <li>1. Executive Summary</li>
+            <li>2. Architecture Overview</li>
+            <li>3. Core Components</li>
+            <li>4. Incremental ML Pipeline</li>
+            <li>5. Event-Driven Architecture</li>
+            <li>6. Security & Authentication</li>
+            <li>7. Database Schema</li>
+            <li>8. API Endpoints</li>
+            <li>9. Docker Services</li>
+            <li>10. Technologies Used</li>
+        </ul>
+    </div>
+
+    <h2>1. Executive Summary</h2>
+    
+    <p>This is a <strong>production-grade enterprise document management platform</strong> that combines traditional file storage with cutting-edge <strong>Incremental Machine Learning (ML) pipelines</strong>. The system is inspired by <strong>Incremental View Maintenance (IVM)</strong> concepts from database research, applying them to ML model updates.</p>
+
+    <div class="highlight">
+        <h3>🎯 Key Innovation</h3>
+        <p>Instead of retraining ML models from scratch on every data change, we apply database-inspired techniques to update models incrementally - saving up to 95% of computational resources.</p>
+    </div>
+
+    <h3>Key Features</h3>
+    <ul>
+        <li><strong>Chunked File Upload</strong> - Large files split into 5MB chunks for reliable uploads</li>
+        <li><strong>Multi-Tenant Architecture</strong> - Organization-based file isolation</li>
+        <li><strong>Virus Scanning</strong> - ClamAV integration for malware detection</li>
+        <li><strong>Event-Driven Processing</strong> - RabbitMQ with DLQ, retries, priority queues</li>
+        <li><strong>Incremental ML Pipeline</strong> - Intelligent model updates based on data changes</li>
+        <li><strong>Enterprise Security</strong> - Keycloak SSO, Kong API Gateway, RBAC</li>
+    </ul>
+
+    <div class="page-break"></div>
+
+    <h2>2. Architecture Overview</h2>
+
+    <div class="architecture-box">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           FRONTEND (Next.js 15)                              │
+│                    React + TypeScript + TailwindCSS                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          CADDY (HTTPS Reverse Proxy)                         │
+│                    Local HTTPS with Auto-Generated Certs                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          KONG (API Gateway)                                  │
+│              Rate Limiting, Auth, Load Balancing, Analytics                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+┌─────────────────────────────────┐         ┌─────────────────────────────────┐
+│     FASTAPI BACKEND             │         │     KEYCLOAK (IAM)              │
+│  • REST API Endpoints           │         │  • SSO, OAuth2, OIDC            │
+│  • File Upload Handlers         │         │  • LDAP/AD Integration          │
+│  • Pipeline Orchestration       │         │  • Social Login                 │
+│  • Event Publishers             │         │  • MFA Support                  │
+└─────────────────────────────────┘         └─────────────────────────────────┘
+              │
+              ├──────────────────┬──────────────────┬──────────────────┐
+              ▼                  ▼                  ▼                  ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐
+│     MYSQL        │  │     MINIO        │  │    RABBITMQ      │  │   CELERY     │
+│  • File Metadata │  │  • Object Store  │  │  • Event Bus     │  │  • Workers   │
+│  • User Data     │  │  • Chunk Storage │  │  • Task Queue    │  │  • Async     │
+│  • ML Models     │  │  • S3-Compatible │  │  • DLQ Support   │  │    Processing│
+│  • Deltas        │  │                  │  │  • Priority Q    │  │              │
+└──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────┘
+    </div>
+
+    <h2>3. Core Components</h2>
+
+    <h3>3.1 File Management Service</h3>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td>Chunked Upload</td>
+            <td>Large files split into 5MB chunks, uploaded in parallel</td>
+        </tr>
+        <tr>
+            <td>Multi-Tenant</td>
+            <td>Organization-based file isolation with per-org buckets</td>
+        </tr>
+        <tr>
+            <td>Virus Scanning</td>
+            <td>ClamAV integration for malware detection</td>
+        </tr>
+        <tr>
+            <td>Authenticated Downloads</td>
+            <td>JWT/API key protected file access with streaming</td>
+        </tr>
+        <tr>
+            <td>Share Links</td>
+            <td>Time-limited presigned URLs for sharing (1-168 hours)</td>
+        </tr>
+        <tr>
+            <td>Folder Hierarchy</td>
+            <td>Nested folder structure per organization</td>
+        </tr>
+    </table>
+
+    <h3>3.2 Upload Flow</h3>
+    <div class="box">
+        <ol>
+            <li><strong>Initialize</strong> - <code>POST /api/v1/file/upload/init/</code> - Get upload_id</li>
+            <li><strong>Upload Chunks</strong> - <code>POST /api/v1/file/upload/chunk/</code> - Upload each 5MB chunk</li>
+            <li><strong>Complete</strong> - <code>POST /api/v1/file/upload/complete/</code> - Merge chunks, trigger virus scan</li>
+            <li><strong>Event Published</strong> - <code>file.upload.completed</code> event triggers downstream processing</li>
+        </ol>
+    </div>
+
+    <div class="page-break"></div>
+
+    <h2>4. Incremental ML Pipeline</h2>
+
+    <div class="highlight">
+        <h3>🔬 Research Background</h3>
+        <p>This implementation draws from cutting-edge database research: Incremental View Maintenance (IVM), Cost-Based Query Optimization, Learned Indexes, and Adaptive Query Processing.</p>
+    </div>
+
+    <h3>4.1 Pipeline Flow</h3>
+    <div class="architecture-box">
+  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────┐
+  │  FILE    │───►│   CHANGE     │───►│   LEARNED    │───►│  COST    │
+  │  UPLOAD  │    │  DETECTION   │    │   ROUTER     │    │ OPTIMIZER│
+  └──────────┘    └──────────────┘    └──────────────┘    └──────────┘
+       │               │                     │                   │
+       │         Detects:              Predicts:           Optimizes:
+       │         • Row changes         • Strategy          • Time
+       │         • Schema drift        • Confidence        • Memory
+       │         • Distribution        • Reasoning         • Cost
+       │                                     │                   │
+       │                                     ▼                   │
+       │                           ┌──────────────────┐          │
+       │                           │  EXECUTE STRATEGY│◄─────────┘
+       │                           └──────────────────┘
+       │                                     │
+       │         ┌───────────────────────────┼────────────────────────┐
+       │         ▼                           ▼                        ▼
+       │    ┌─────────┐              ┌─────────────┐          ┌─────────────┐
+       │    │  SKIP   │              │ INCREMENTAL │          │    FULL     │
+       │    │  (0s)   │              │    (5s)     │          │  RETRAIN    │
+       │    └─────────┘              └─────────────┘          │   (120s)    │
+       │                                                      └─────────────┘
+       │                                     │
+       └─────────────────────────────────────┘
+                                     │
+                                     ▼
+                           ┌──────────────────┐
+                           │  FEEDBACK LOOP   │
+                           │  • Record Actual │
+                           │  • Retrain Router│
+                           │  • Calibrate Cost│
+                           └──────────────────┘
+    </div>
+
+    <h3>4.2 Processing Strategies</h3>
+    <table>
+        <tr>
+            <th>Strategy</th>
+            <th>Trigger Condition</th>
+            <th>Action</th>
+            <th>Cost</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">SKIP</span></td>
+            <td>&lt; 1% change, no drift</td>
+            <td>Validate only, no update</td>
+            <td>~0 seconds</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">INCREMENTAL</span></td>
+            <td>1-15% change, low drift</td>
+            <td><code>partial_fit()</code> on delta</td>
+            <td>~1-5 seconds</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">PARTIAL_RETRAIN</span></td>
+            <td>15-40% change, moderate drift</td>
+            <td>Retrain on affected subset</td>
+            <td>~10-30 seconds</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">FULL_RETRAIN</span></td>
+            <td>&gt; 40% change, schema change</td>
+            <td>Complete model retraining</td>
+            <td>~30-120 seconds</td>
+        </tr>
+    </table>
+
+    <h3>4.3 Learned Router Features</h3>
+    <p>The router uses a <strong>GradientBoostingClassifier</strong> trained on 13 features:</p>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>Description</th>
+        </tr>
+        <tr><td>insert_ratio</td><td>Fraction of new rows added</td></tr>
+        <tr><td>delete_ratio</td><td>Fraction of rows deleted</td></tr>
+        <tr><td>update_ratio</td><td>Fraction of rows updated</td></tr>
+        <tr><td>change_magnitude</td><td>Overall change score (0-1)</td></tr>
+        <tr><td>entropy_delta</td><td>Change in data distribution</td></tr>
+        <tr><td>feature_drift_score</td><td>PSI-based drift detection</td></tr>
+        <tr><td>columns_added_count</td><td>Number of new columns</td></tr>
+        <tr><td>columns_removed_count</td><td>Number of removed columns</td></tr>
+        <tr><td>columns_modified_count</td><td>Number of modified columns</td></tr>
+        <tr><td>is_schema_change</td><td>Binary schema change flag</td></tr>
+        <tr><td>rows_before_log</td><td>Log-scaled row count before</td></tr>
+        <tr><td>rows_after_log</td><td>Log-scaled row count after</td></tr>
+        <tr><td>time_since_last_update</td><td>Hours since last update</td></tr>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h2>5. Event-Driven Architecture</h2>
+
+    <h3>5.1 Event Flow</h3>
+    <div class="architecture-box">
+   API publishes "file.upload.completed"
+       │
+       ├──► events.virus_scanner ──► Scans file ──► publishes virus.scan.*
+       ├──► events.db_updater ────► Updates file status in DB
+       ├──► events.notifications ─► Sends email/push notifications
+       ├──► events.websocket ─────► Real-time UI updates
+       └──► events.audit_log ─────► Security audit trail
+    </div>
+
+    <h3>5.2 Event Types</h3>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Events</th>
+        </tr>
+        <tr>
+            <td>File Events</td>
+            <td><code>file.upload.started</code>, <code>file.upload.completed</code>, <code>file.upload.failed</code>, <code>file.deleted</code>, <code>file.shared</code>, <code>file.downloaded</code>, <code>file.previewed</code></td>
+        </tr>
+        <tr>
+            <td>Virus Scan</td>
+            <td><code>virus.scan.completed</code>, <code>virus.detected</code></td>
+        </tr>
+        <tr>
+            <td>User Events</td>
+            <td><code>user.quota.warning</code>, <code>user.quota.exceeded</code></td>
+        </tr>
+        <tr>
+            <td>System Events</td>
+            <td><code>task.failed</code>, <code>task.retry</code></td>
+        </tr>
+    </table>
+
+    <h3>5.3 RabbitMQ Features</h3>
+    <ul>
+        <li><strong>Dead Letter Queue (DLQ)</strong> - Failed messages preserved for debugging</li>
+        <li><strong>Retry with Backoff</strong> - Automatic retries (1s, 5s, 30s, 5m)</li>
+        <li><strong>Priority Queues</strong> - Critical tasks processed first (1-10 scale)</li>
+        <li><strong>Topic Exchange</strong> - Pattern-based routing (<code>file.*</code>, <code>virus.*</code>)</li>
+    </ul>
+
+    <h2>6. Security & Authentication</h2>
+
+    <h3>6.1 Multi-Layer Security</h3>
+    <table>
+        <tr>
+            <th>Layer</th>
+            <th>Technology</th>
+            <th>Purpose</th>
+        </tr>
+        <tr>
+            <td>Gateway</td>
+            <td>Kong</td>
+            <td>Rate limiting, IP filtering, OAuth validation</td>
+        </tr>
+        <tr>
+            <td>IAM</td>
+            <td>Keycloak</td>
+            <td>SSO, MFA, Social Login, LDAP</td>
+        </tr>
+        <tr>
+            <td>API</td>
+            <td>JWT + API Keys</td>
+            <td>Per-request authentication</td>
+        </tr>
+        <tr>
+            <td>File</td>
+            <td>ClamAV</td>
+            <td>Virus/malware scanning</td>
+        </tr>
+        <tr>
+            <td>HTTPS</td>
+            <td>Caddy</td>
+            <td>Auto TLS certificates</td>
+        </tr>
+    </table>
+
+    <h3>6.2 Role-Based Access Control (RBAC)</h3>
+    <table>
+        <tr>
+            <th>Role</th>
+            <th>Description</th>
+            <th>Key Permissions</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">SUPER_ADMIN</span></td>
+            <td>Full system access</td>
+            <td>All permissions</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">ORG_ADMIN</span></td>
+            <td>Organization administrator</td>
+            <td>Manage users, files, org settings</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">MANAGER</span></td>
+            <td>Team/department manager</td>
+            <td>Manage team files, view analytics</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">USER</span></td>
+            <td>Regular user</td>
+            <td>Upload, download, share files</td>
+        </tr>
+        <tr>
+            <td>VIEWER</td>
+            <td>Read-only access</td>
+            <td>View files only</td>
+        </tr>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h2>7. Database Schema</h2>
+
+    <h3>7.1 Core Entities</h3>
+    <div class="architecture-box">
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  organizations  │     │     users       │     │     files       │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ id              │◄────│ organization_id │     │ id              │
+│ name            │     │ id              │◄────│ user_id         │
+│ slug            │     │ email           │     │ organization_id │
+│ plan            │     │ role            │     │ filename        │
+│ storage_quota   │     │ hashed_password │     │ path            │
+│ max_users       │     └─────────────────┘     │ content_type    │
+└─────────────────┘                             │ size            │
+                                                │ virus_scan_status│
+                                                │ is_quarantined  │
+                                                └─────────────────┘
+                                                         │
+                                                         ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   data_deltas   │     │ model_versions  │     │  pipeline_runs  │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ id              │     │ id              │     │ id              │
+│ file_id         │────►│ model_name      │     │ pipeline_name   │
+│ version_before  │     │ version         │     │ status          │
+│ version_after   │     │ model_path      │     │ started_at      │
+│ delta_type      │     │ accuracy        │     │ completed_at    │
+│ rows_inserted   │     │ is_active       │     │ strategy_used   │
+│ change_magnitude│     │ training_delta  │     │ actual_time_ms  │
+│ entropy_delta   │     └─────────────────┘     │ error_message   │
+│ processing_     │                             └─────────────────┘
+│   strategy      │
+└─────────────────┘
+    </div>
+
+    <h2>8. API Endpoints</h2>
+
+    <h3>8.1 File Management</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr><td>POST</td><td><code>/api/v1/file/upload/init/</code></td><td>Initialize chunked upload</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/file/upload/chunk/</code></td><td>Upload a chunk</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/file/upload/complete/</code></td><td>Finalize upload</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/file/download/{id}</code></td><td>Download file (authenticated)</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/file/share/{id}</code></td><td>Generate share link</td></tr>
+        <tr><td>DELETE</td><td><code>/api/v1/file/{id}</code></td><td>Delete file</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/file/all</code></td><td>List user's files</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/file/platform/all</code></td><td>List all files (admin)</td></tr>
+    </table>
+
+    <h3>8.2 ML Pipeline</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr><td>POST</td><td><code>/api/v1/pipeline/trigger/{file_id}</code></td><td>Manual pipeline trigger</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/pipeline/status/{run_id}</code></td><td>Check pipeline status</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/pipeline/router/train</code></td><td>Train router model</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/pipeline/cost/calibrate</code></td><td>Calibrate cost model</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/pipeline/stats</code></td><td>Pipeline statistics</td></tr>
+    </table>
+
+    <h3>8.3 Authentication</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr><td>POST</td><td><code>/api/v1/auth/register</code></td><td>Create account</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/auth/login</code></td><td>Get JWT token</td></tr>
+        <tr><td>POST</td><td><code>/api/v1/auth/refresh</code></td><td>Refresh token</td></tr>
+        <tr><td>GET</td><td><code>/api/v1/auth/me</code></td><td>Current user info</td></tr>
+    </table>
+
+    <div class="page-break"></div>
+
+    <h2>9. Docker Services</h2>
+
+    <table>
+        <tr>
+            <th>Service</th>
+            <th>Image</th>
+            <th>Purpose</th>
+            <th>Ports</th>
+        </tr>
+        <tr><td>filemanager</td><td>Custom FastAPI</td><td>Main application</td><td>8000</td></tr>
+        <tr><td>minio</td><td>minio/minio</td><td>Object storage (S3-compatible)</td><td>9001, 9090</td></tr>
+        <tr><td>db-mysql</td><td>mysql:8</td><td>Metadata database</td><td>3306</td></tr>
+        <tr><td>rabbitmq</td><td>rabbitmq:3-management</td><td>Event bus & task queue</td><td>5672, 15672</td></tr>
+        <tr><td>caddy</td><td>caddy:2</td><td>HTTPS reverse proxy</td><td>80, 9443</td></tr>
+        <tr><td>kong</td><td>kong:3.9</td><td>API Gateway</td><td>8001, 8444</td></tr>
+        <tr><td>kong-db</td><td>postgres:15</td><td>Kong database</td><td>-</td></tr>
+        <tr><td>keycloak</td><td>quay.io/keycloak/keycloak</td><td>Identity & Access Management</td><td>8080</td></tr>
+        <tr><td>keycloak-db</td><td>postgres:15</td><td>Keycloak database</td><td>-</td></tr>
+        <tr><td>clamav</td><td>Custom Node.js + ClamAV</td><td>Virus scanning</td><td>3310</td></tr>
+    </table>
+
+    <h2>10. Technologies Used</h2>
+
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Technologies</th>
+        </tr>
+        <tr>
+            <td><strong>Backend</strong></td>
+            <td>Python 3.11, FastAPI, SQLAlchemy, Pydantic, Alembic</td>
+        </tr>
+        <tr>
+            <td><strong>Frontend</strong></td>
+            <td>Next.js 15, React 19, TypeScript, TailwindCSS</td>
+        </tr>
+        <tr>
+            <td><strong>Machine Learning</strong></td>
+            <td>Scikit-learn (SGDClassifier, GradientBoosting), Pandas, NumPy</td>
+        </tr>
+        <tr>
+            <td><strong>Storage</strong></td>
+            <td>MinIO (S3-compatible), MySQL 8</td>
+        </tr>
+        <tr>
+            <td><strong>Messaging</strong></td>
+            <td>RabbitMQ, Celery, Kombu</td>
+        </tr>
+        <tr>
+            <td><strong>Security</strong></td>
+            <td>Keycloak, Kong, ClamAV, JWT, bcrypt</td>
+        </tr>
+        <tr>
+            <td><strong>Infrastructure</strong></td>
+            <td>Docker Compose, Caddy, Supervisor</td>
+        </tr>
+    </table>
+
+    <div class="highlight" style="margin-top: 40px;">
+        <h3>🚀 Key Innovations</h3>
+        <ul style="margin: 15px 0; padding-left: 20px;">
+            <li><strong>IVM-Inspired ML Updates</strong> - Analyze deltas and update incrementally instead of full retraining</li>
+            <li><strong>Learned Router</strong> - ML model that learns optimal update strategies from historical data</li>
+            <li><strong>Cost-Based Optimization</strong> - Database query optimizer concepts applied to ML decisions</li>
+            <li><strong>Self-Improving System</strong> - Feedback loop automatically recalibrates and retrains</li>
+            <li><strong>Event-Driven Architecture</strong> - Fully decoupled services with RabbitMQ pub/sub</li>
+        </ul>
+    </div>
+
+    <footer>
+        <p>📁 File Management Platform - Technical Documentation</p>
+        <p>Generated: December 2025 | Version 1.0.0</p>
+        <p>© 2025 - Enterprise Document Intelligence with Incremental ML</p>
+    </footer>
+
+</body>
+</html>
