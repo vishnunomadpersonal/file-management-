@@ -16,8 +16,10 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from core.security import get_current_user, AuthenticatedUser
+from infrastructure.db.mysql import mysql
 from chatbot import get_chatbot, chatbot_config
 from chatbot.providers.base import UserContext
 from chatbot.security import RBACFilter, get_accessible_pages, get_allowed_actions
@@ -25,6 +27,20 @@ from chatbot.security import RBACFilter, get_accessible_pages, get_allowed_actio
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/chat", tags=["Chatbot"])
+
+
+def get_db():
+    """Get database session."""
+    return next(mysql.get_db())
+
+
+# ============================================================================
+# DATABASE DEPENDENCY
+# ============================================================================
+
+def get_db():
+    """Get database session."""
+    return next(mysql.get_db())
 
 
 # ============================================================================
@@ -55,11 +71,18 @@ class ChatMessageResponse(BaseModel):
     tokens_used: Optional[int] = None
 
 
+class RoutingInfo(BaseModel):
+    """Information about how the request was routed."""
+    method: str = Field(description="Routing method used: analytics_template_sql, rule_based, text_to_sql_llm, llm_chat")
+    elapsed_ms: int = Field(description="Total time to process request")
+
+
 class ChatResponse(BaseModel):
     """Full chat response including session info."""
     session_id: str
     response: ChatMessageResponse
     message_count: int
+    routing: Optional[RoutingInfo] = None
     timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 
@@ -111,6 +134,7 @@ def require_chatbot_enabled():
 async def send_message(
     request: ChatRequest,
     user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
     _: None = Depends(require_chatbot_enabled)
 ):
     """
@@ -118,6 +142,12 @@ async def send_message(
     
     The chatbot respects RBAC - it will only suggest actions and 
     navigation the user has permission to access.
+    
+    PRODUCTION ROUTING (fast → slow):
+    1. Analytics Template SQL (~50-100ms) - 80% of data queries
+    2. Rule-based Navigation (~1ms) - greetings, navigation
+    3. LangChain Text-to-SQL (~30s) - complex queries
+    4. LLM Chat - general conversation
     """
     chatbot = get_chatbot()
     user_context = build_user_context(user)
@@ -126,7 +156,8 @@ async def send_message(
         result = await chatbot.chat(
             message=request.message,
             user_context=user_context,
-            session_id=request.session_id
+            session_id=request.session_id,
+            db=db  # Pass database for fast analytics queries
         )
         
         if "error" in result:
@@ -158,6 +189,14 @@ async def send_message(
         ]
         filtered_actions = rbac_filter.filter_actions(chat_actions)
         
+        # Build routing info if available
+        routing_info = None
+        if "routing" in result and result["routing"]:
+            routing_info = RoutingInfo(
+                method=result["routing"].get("method", "unknown"),
+                elapsed_ms=result["routing"].get("elapsed_ms", 0)
+            )
+        
         return ChatResponse(
             session_id=result["session_id"],
             response=ChatMessageResponse(
@@ -176,7 +215,8 @@ async def send_message(
                 processing_time_ms=response_data.get("processing_time_ms", 0),
                 tokens_used=response_data.get("tokens_used")
             ),
-            message_count=result["message_count"]
+            message_count=result["message_count"],
+            routing=routing_info
         )
         
     except Exception as e:

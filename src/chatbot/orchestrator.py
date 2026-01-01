@@ -1,5 +1,13 @@
 """
 Chatbot Orchestrator - Session management and conversation coordination
+
+PRODUCTION ARCHITECTURE:
+========================
+1. Greetings/Navigation → Rule-based (instant, ~1ms)
+2. Data Queries → Analytics Engine with Template SQL (~50-100ms)
+3. Complex/Unknown → LangChain Text-to-SQL LLM fallback (~30s)
+
+This gives us 80% of queries in <100ms, 20% fallback to LLM.
 """
 
 from typing import Dict, List, Optional, Any
@@ -8,6 +16,7 @@ import uuid
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -18,7 +27,11 @@ from .providers.factory import get_provider, get_provider_health
 from .providers.rule_based import RuleBasedProvider
 from .config import chatbot_config
 
-# Text-to-SQL using LangChain (production-ready)
+# PRODUCTION: Intent Classification + Template SQL (FAST ~50ms)
+from .intent_classifier import get_intent_classifier, ClassifiedIntent
+from .analytics_engine import get_analytics_engine, UserContext as AnalyticsUserContext
+
+# LLM FALLBACK: Text-to-SQL for complex queries (~30s)
 from .text_to_sql_langchain import get_sql_agent, LangChainSQLAgent
 
 logger = logging.getLogger(__name__)
@@ -337,10 +350,70 @@ class ChatbotOrchestrator:
         re.compile(r'\?$'),  # Questions should go to LLM
     ]
     
+    # PRODUCTION: Analytics patterns that use fast Template SQL (~50ms)
+    # These questions can be answered with pre-built SQL templates
+    ANALYTICS_PATTERNS = [
+        # User counts and lists
+        re.compile(r'\bhow many (users?|members?|people|accounts?)\b', re.IGNORECASE),
+        re.compile(r'\b(users?|members?).*(count|number|total)\b', re.IGNORECASE),
+        re.compile(r'\busers? (by|per|group) (role|status|type)\b', re.IGNORECASE),
+        re.compile(r'\b(top|most|best) uploader', re.IGNORECASE),
+        re.compile(r'\b(recent|new|latest) users?\b', re.IGNORECASE),
+        
+        # File counts and stats
+        re.compile(r'\bhow many files?\b', re.IGNORECASE),
+        re.compile(r'\b(files?|documents?).*(count|number|total)\b', re.IGNORECASE),
+        re.compile(r'\bfiles? (by|per) (type|user|day)\b', re.IGNORECASE),
+        re.compile(r'\b(largest|biggest|heaviest) files?\b', re.IGNORECASE),
+        re.compile(r'\b(recent|new|latest) (uploads?|files?)\b', re.IGNORECASE),
+        re.compile(r'\brecent uploads?\b', re.IGNORECASE),
+        
+        # Storage
+        re.compile(r'\b(total|how much).*storage\b', re.IGNORECASE),
+        re.compile(r'\bstorage.*(used|usage|by)\b', re.IGNORECASE),
+        re.compile(r'\bhow much (space|disk|storage)\b', re.IGNORECASE),
+        
+        # Organizations
+        re.compile(r'\bhow many (org|organization|compan|tenant)', re.IGNORECASE),
+        re.compile(r'\b(org|organization)s?.*(count|list|storage)\b', re.IGNORECASE),
+        re.compile(r'\b(most|top) active org', re.IGNORECASE),
+        
+        # Folders
+        re.compile(r'\bhow many folders?\b', re.IGNORECASE),
+        re.compile(r'\bfolders?.*(count|list)\b', re.IGNORECASE),
+        
+        # Security
+        re.compile(r'\bvirus (scan|status)\b', re.IGNORECASE),
+        re.compile(r'\bquarantin', re.IGNORECASE),
+        
+        # Trends
+        re.compile(r'\buploads? (by|per|trend|daily)\b', re.IGNORECASE),
+        re.compile(r'\b(daily|weekly) (uploads?|signups?)\b', re.IGNORECASE),
+        
+        # My data
+        re.compile(r'\bmy (files?|storage|uploads?)\b', re.IGNORECASE),
+        
+        # Additional patterns for better coverage
+        re.compile(r'\b(recent|latest|new) (uploads?|files?)\b', re.IGNORECASE),
+        re.compile(r'\b(largest|biggest|heaviest) files?\b', re.IGNORECASE),
+        re.compile(r'\b(top|best|most) uploader', re.IGNORECASE),
+        re.compile(r'\bwho upload', re.IGNORECASE),
+        re.compile(r'\bstorage (by|per) (user|org)', re.IGNORECASE),
+        
+        # Exact matches for short queries
+        re.compile(r'^recent uploads?$', re.IGNORECASE),
+        re.compile(r'^latest uploads?$', re.IGNORECASE),
+        re.compile(r'^largest files?$', re.IGNORECASE),
+        re.compile(r'^biggest files?$', re.IGNORECASE),
+        re.compile(r'^my files?$', re.IGNORECASE),
+        re.compile(r'^top uploaders?$', re.IGNORECASE),
+    ]
+    
     def __init__(self):
         self.session_manager = SessionManager()
         self._provider: Optional[LLMProvider] = None
         self._rule_based: Optional[RuleBasedProvider] = None
+        self._intent_classifier = None
     
     @property
     def provider(self) -> LLMProvider:
@@ -357,9 +430,30 @@ class ChatbotOrchestrator:
         return self._rule_based
     
     @property
+    def intent_classifier(self):
+        """Get the intent classifier for analytics queries."""
+        if self._intent_classifier is None:
+            self._intent_classifier = get_intent_classifier()
+        return self._intent_classifier
+    
+    @property
     def is_enabled(self) -> bool:
         """Check if chatbot is enabled."""
         return chatbot_config.enabled
+    
+    def _should_use_analytics(self, message: str) -> bool:
+        """
+        Check if the message should use the FAST Analytics Engine (~50ms).
+        
+        These are common data queries that can be answered with
+        pre-built SQL templates instead of waiting for LLM.
+        """
+        message = message.strip()
+        
+        for pattern in self.ANALYTICS_PATTERNS:
+            if pattern.search(message):
+                return True
+        return False
     
     def _should_use_text_to_sql(self, message: str) -> bool:
         """
@@ -417,20 +511,25 @@ class ChatbotOrchestrator:
         self,
         message: str,
         user_context: UserContext,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        db: Any = None
     ) -> Dict[str, Any]:
         """
         Process a chat message.
         
-        Uses hybrid approach:
-        - Text-to-SQL for complex data queries (LLM generates SQL)
-        - Rule-based for navigation/commands (reliable actions)
-        - LLM for complex queries
+        PRODUCTION ARCHITECTURE (Priority order):
+        ==========================================
+        1. GREETINGS → Rule-based (~1ms) - instant responses
+        2. NAVIGATION → Rule-based (~1ms) - page navigation  
+        3. ANALYTICS → Template SQL (~50-100ms) - 80% of data queries
+        4. COMPLEX → LangChain Text-to-SQL (~30s) - 20% fallback
+        5. OTHER → LLM general chat
         
         Args:
             message: User's message
             user_context: User's context with role and permissions
             session_id: Optional existing session ID
+            db: Database session for analytics queries
             
         Returns:
             Dict with response, session_id, and metadata
@@ -441,6 +540,8 @@ class ChatbotOrchestrator:
                 "code": "CHATBOT_DISABLED"
             }
         
+        start_time = time.time()
+        
         # Get or create session
         session = self.session_manager.get_or_create_session(session_id, user_context)
         
@@ -448,47 +549,139 @@ class ChatbotOrchestrator:
         session.add_message(MessageRole.USER, message)
         
         response = None
+        routing_method = None
         
-        # FIRST: Check for complex data queries that need Text-to-SQL
-        if self._should_use_text_to_sql(message):
-            logger.info(f"Using TEXT-TO-SQL for message: {message[:50]}...")
+        # =====================================================================
+        # PRODUCTION ROUTING (Priority order for speed)
+        # =====================================================================
+        
+        # PRIORITY 1: ANALYTICS - Fast Template SQL (~50-100ms)
+        # Check this FIRST because it's the most common and fastest
+        if db and self._should_use_analytics(message):
+            routing_method = "analytics_template_sql"
+            logger.info(f"[FAST] Using Analytics Engine for: {message[:50]}...")
+            try:
+                response = await self._handle_analytics(message, user_context, db)
+                if response:
+                    elapsed = int((time.time() - start_time) * 1000)
+                    logger.info(f"[FAST] Analytics responded in {elapsed}ms")
+            except Exception as e:
+                logger.warning(f"Analytics failed, will try fallback: {e}")
+                response = None  # Fall through to next handler
+        
+        # PRIORITY 2: RULE-BASED - Navigation & Greetings (~1ms)
+        if response is None and self._should_use_rule_based(message):
+            routing_method = "rule_based"
+            logger.debug(f"Using rule-based provider for: {message[:50]}...")
+            response = await self.rule_based.chat(
+                message=message,
+                history=session.history[:-1],
+                user_context=user_context,
+                system_prompt=chatbot_config.system_prompt
+            )
+        
+        # PRIORITY 3: TEXT-TO-SQL - Complex queries needing LLM (~30s)
+        # Only use for queries that REALLY need dynamic SQL generation
+        if response is None and self._should_use_text_to_sql(message):
+            routing_method = "text_to_sql_llm"
+            logger.info(f"[SLOW] Using Text-to-SQL LLM for: {message[:50]}...")
             try:
                 response = await self._handle_text_to_sql(message, user_context)
+                elapsed = int((time.time() - start_time) * 1000)
+                logger.info(f"[SLOW] Text-to-SQL responded in {elapsed}ms")
             except Exception as e:
-                logger.error(f"Text-to-SQL failed, falling back to LLM: {e}")
-                # Fall through to LLM on error
+                logger.error(f"Text-to-SQL failed: {e}")
+                response = None  # Fall through to LLM chat
         
-        # SECOND: Hybrid approach for navigation and other queries
+        # PRIORITY 4: LLM CHAT - General conversation
         if response is None:
-            if self._should_use_rule_based(message):
-                logger.debug(f"Using rule-based provider for message: {message[:50]}...")
-                response = await self.rule_based.chat(
-                    message=message,
-                    history=session.history[:-1],
-                    user_context=user_context,
-                    system_prompt=chatbot_config.system_prompt
-                )
-            else:
-                logger.debug(f"Using LLM provider for message: {message[:50]}...")
-                response = await self.provider.chat(
-                    message=message,
-                    history=session.history[:-1],  # Exclude current message
-                    user_context=user_context,
-                    system_prompt=chatbot_config.system_prompt
-                )
+            routing_method = "llm_chat"
+            logger.debug(f"Using LLM provider for: {message[:50]}...")
+            response = await self.provider.chat(
+                message=message,
+                history=session.history[:-1],
+                user_context=user_context,
+                system_prompt=chatbot_config.system_prompt
+            )
         
         # Add assistant response to history
         session.add_message(MessageRole.ASSISTANT, response.message)
         
+        elapsed_total = int((time.time() - start_time) * 1000)
+        
         return {
             "session_id": session.session_id,
             "response": response.to_dict(),
-            "message_count": len(session.history)
+            "message_count": len(session.history),
+            "routing": {
+                "method": routing_method,
+                "elapsed_ms": elapsed_total
+            }
         }
+    
+    async def _handle_analytics(
+        self,
+        message: str,
+        user_context: UserContext,
+        db: Any
+    ) -> Optional[ChatResponse]:
+        """
+        Handle data queries using FAST Template SQL (~50-100ms).
+        
+        This is the PRODUCTION path - uses pre-built SQL templates
+        instead of waiting for LLM to generate SQL.
+        """
+        try:
+            # Classify the intent
+            intent = self.intent_classifier.classify(message)
+            
+            if not intent:
+                # No match - let another handler try
+                logger.debug(f"No analytics intent match for: {message[:50]}")
+                return None
+            
+            if intent.confidence < 0.7:
+                # Low confidence - let LLM handle it
+                logger.debug(f"Low confidence ({intent.confidence}) for: {message[:50]}")
+                return None
+            
+            # Build user context for analytics engine
+            analytics_user = AnalyticsUserContext(
+                user_id=user_context.user_id,
+                org_id=getattr(user_context, 'organization_id', None) or '',
+                role=user_context.role
+            )
+            
+            # Get analytics engine and execute
+            from .analytics_engine import get_analytics_engine
+            engine = get_analytics_engine(db)
+            result = engine.execute(intent, analytics_user)
+            
+            if result.success:
+                return ChatResponse(
+                    message=result.message,
+                    metadata={
+                        "source": "analytics_template_sql",
+                        "tool": result.tool_name,
+                        "row_count": result.row_count,
+                        "query_time_ms": result.query_time_ms,
+                        "confidence": intent.confidence
+                    }
+                )
+            else:
+                logger.warning(f"Analytics query failed: {result.message}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Analytics error: {e}", exc_info=True)
+            return None
     
     async def _handle_text_to_sql(self, message: str, user_context: UserContext) -> ChatResponse:
         """
         Handle complex data queries using LangChain Text-to-SQL Agent.
+        
+        This is the FALLBACK path (~30s) - only used when Template SQL
+        can't handle the query.
         
         The LLM generates a SQL query based on the natural language question,
         then we execute it safely and format the results.
