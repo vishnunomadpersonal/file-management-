@@ -204,42 +204,83 @@ class LangChainSQLAgent:
     def _init_chains(self):
         """Initialize LangChain prompts (we'll call LLM directly)."""
         
-        # SQL Query Generation Prompt
+        # SQL Query Generation Prompt - IMPROVED with explicit schema
         self.sql_prompt = PromptTemplate.from_template("""
 You are a MySQL expert. Generate a SQL query to answer the question.
 
-DATABASE SCHEMA:
-{table_info}
+=== DATABASE SCHEMA (USE ONLY THESE EXACT COLUMN NAMES) ===
 
-ACCESS CONTROL:
+TABLE: users (alias: u)
+COLUMNS: id, name, email, role, organization_id, is_active, is_verified, status, created_at, updated_at, last_login_at
+
+TABLE: files (alias: f)
+COLUMNS: id, filename, content_type, size, user_id, organization_id, folder_id, virus_scan_status, virus_scan_date, is_quarantined, appointment_id, path, upload_id
+NOTE: size is in BYTES. user_id = uploader (links to users.id). virus_scan_date = upload timestamp.
+
+TABLE: organizations (alias: o)
+COLUMNS: id, name, slug, description, email, phone, website, plan, is_active, is_verified, storage_quota_bytes, storage_used_bytes, max_users, max_files, created_at, updated_at
+
+TABLE: folders (alias: fo)
+COLUMNS: id, name, parent_id, organization_id, created_by, path, created_at, updated_at
+
+TABLE: appointments (alias: a)
+COLUMNS: id, name, date, user_id
+
+=== IMPORTANT MAPPINGS ===
+- "upload date" or "uploaded" or "when" → f.virus_scan_date
+- "who uploaded" or "uploader" → JOIN users u ON f.user_id = u.id, then u.name
+- "file size in MB" → ROUND(f.size/1048576, 2) AS size_mb
+- "file size in KB" → ROUND(f.size/1024, 2) AS size_kb
+- "total storage" → SUM(f.size)/1048576 AS total_mb
+- "average file size" → AVG(f.size) for bytes, AVG(f.size)/1024 for KB, AVG(f.size)/1048576 for MB
+- "user join date" or "registered" → u.created_at
+- "appointment date" → a.date
+
+=== ACCESS CONTROL ===
 {access_control}
 
-RULES:
-1. ONLY generate SELECT queries
-2. Use table aliases (u=users, f=files, o=organizations, fo=folders)
-3. Always add LIMIT 50 unless user specifies
-4. Use proper JOINs for multi-table queries
-5. Return human-readable column names using AS
-6. Always include ORDER BY for consistent results
-7. RESPECT the access control restrictions above
+=== RULES ===
+1. ONLY use columns listed above - NO OTHERS EXIST
+2. FORBIDDEN columns: size_mb, size_kb, upload_date, uploaded_by, created_date
+3. To get uploader: JOIN users u ON f.user_id = u.id
+4. DATE RANGE RULES:
+   - "between December 2025 and January 2026" → BETWEEN '2025-12-01' AND '2026-01-31'
+5. Always add LIMIT 50
+6. LISTING DOCUMENTS: Include filename, uploader name, and date
+   Example: SELECT u.name, f.filename, f.virus_scan_date FROM files f JOIN users u ON f.user_id = u.id WHERE ...
+7. RANKING queries (most, top, sorted by): Include the value being sorted
+   Example: SELECT u.name, SUM(f.size)/1048576 AS total_mb FROM files f JOIN users u ON f.user_id = u.id GROUP BY u.name ORDER BY total_mb DESC
+8. COUNTING: Include the count value
+   Example: SELECT u.name, COUNT(*) as file_count FROM files f JOIN users u ON f.user_id = u.id GROUP BY u.name
+9. SPECIFIC USER FILTERS: Filter by user name using WHERE u.name LIKE '%Name%'
+   Example for "files uploaded by Super Admin": SELECT f.filename, ROUND(f.size/1024,2) as size_kb, f.virus_scan_date FROM files f JOIN users u ON f.user_id = u.id WHERE u.name LIKE '%Super Admin%'
+10. COMPARISON FILTERS: Use proper comparison operators
+    Example for "users with more than 5 files": SELECT u.name, COUNT(*) as file_count FROM files f JOIN users u ON f.user_id = u.id GROUP BY u.id, u.name HAVING COUNT(*) > 5
+    Example for "files larger than 1MB": SELECT f.filename, ROUND(f.size/1048576,2) as size_mb FROM files f WHERE f.size > 1048576
+11. AGGREGATIONS: Use AVG(), MIN(), MAX(), SUM() properly
+    Example for "average file size": SELECT ROUND(AVG(f.size)/1024, 2) as avg_size_kb FROM files f
+    Example for "smallest file": SELECT f.filename, f.size as size_bytes FROM files f ORDER BY f.size ASC LIMIT 1
+    Example for "largest file": SELECT f.filename, ROUND(f.size/1048576,2) as size_mb FROM files f ORDER BY f.size DESC LIMIT 1
+12. Output ONLY the SELECT statement
 
 Question: {question}
 
-SQL Query (only the query, no explanations):
-""")
+SELECT""")
         
-        # Answer Generation Prompt  
+        # Answer Generation Prompt - STRICT to prevent hallucinations
         self.answer_prompt = PromptTemplate.from_template("""
-Given the following user question, SQL query, and SQL result, write a natural language response.
+You are a data assistant. Your job is to summarize SQL results in natural language.
 
 Question: {question}
 SQL Query: {query}
 SQL Result: {result}
 
-Write a helpful, conversational response that answers the user's question based on the data.
-If there's no data, say so politely. Format numbers nicely (e.g., file sizes in KB/MB/GB).
-Use bullet points or tables if showing multiple items.
-Keep the response concise but informative.
+CRITICAL RULES:
+1. ONLY report data that appears in the SQL Result above - DO NOT invent names, numbers, or facts
+2. If SQL Result is empty or shows no rows, say "No matching records found" and nothing else
+3. Use the EXACT names and values from the SQL Result - do not make up names like "John Doe"
+4. Format the response clearly with bullet points or a simple list
+5. Include counts and totals if they appear in the result
 
 Response:
 """)
@@ -283,15 +324,11 @@ Response:
             # Get access control context
             access_control = AccessControlLayer.get_access_restriction(user_info)
             
-            # Get table info
-            table_info = self.db.get_table_info()
-            
             # Generate SQL query
             logger.info(f"Generating SQL for: {question}")
             
-            # Format the prompt
+            # Format the prompt (schema is hardcoded in prompt, no table_info needed)
             formatted_prompt = self.sql_prompt.format(
-                table_info=table_info,
                 access_control=access_control,
                 question=question
             )
@@ -306,6 +343,10 @@ Response:
                 if sql_query.startswith('sql'):
                     sql_query = sql_query[3:]
             sql_query = sql_query.strip().rstrip(';')
+            
+            # Prepend SELECT since our prompt ends with "SELECT"
+            if not sql_query.upper().startswith('SELECT'):
+                sql_query = f"SELECT {sql_query}"
             
             # Handle LLM errors/clarifications
             if sql_query.startswith('ERROR:'):
@@ -344,6 +385,7 @@ Response:
             # Execute query
             try:
                 result = self.db.run(sql_query)
+                logger.info(f"SQL Result (first 500 chars): {str(result)[:500]}")
             except Exception as e:
                 logger.error(f"Query execution failed: {e}")
                 return {
@@ -353,21 +395,26 @@ Response:
                     "answer": "The query failed to execute. Please try a different question."
                 }
             
-            # Generate natural language answer
-            answer_prompt_formatted = self.answer_prompt.format(
-                question=question,
-                query=sql_query,
-                result=result
-            )
+            # Check if result is empty
+            if not result or result == "[]" or result.strip() == "" or result.strip() == "()":
+                return {
+                    "success": True,
+                    "answer": "No matching records found for your query.",
+                    "query": sql_query,
+                    "raw_result": result,
+                    "row_count": 0,
+                    "was_truncated": False
+                }
             
-            answer_response = await self.llm.ainvoke(answer_prompt_formatted)
-            answer = answer_response.content.strip()
+            # Format the result directly for reliability (avoid LLM hallucination)
+            answer = self._format_result_directly(question, result)
             
             # Count results
             row_count = 0
-            if result and result != "[]":
+            if result:
                 try:
-                    row_count = result.count('\n') + 1 if '\n' in str(result) else (1 if result else 0)
+                    # Count tuples in the result
+                    row_count = str(result).count('(') 
                 except:
                     pass
             
@@ -387,6 +434,98 @@ Response:
                 "error": str(e),
                 "answer": "I encountered an error processing your question. Please try again."
             }
+    
+    def _format_result_directly(self, question: str, result: str) -> str:
+        """
+        Format SQL result directly without LLM to prevent hallucination.
+        This is more reliable for data reporting.
+        """
+        try:
+            # Parse the result string (it's typically a string representation of tuples)
+            # Example: "[('Super Admin', 'file.txt', datetime...), ...]"
+            result_str = str(result)
+            
+            # Count rows
+            rows = result_str.count('(')
+            if rows == 0:
+                return "No matching records found."
+            
+            # Build a simple formatted response
+            question_lower = question.lower()
+            
+            # For count queries
+            if 'how many' in question_lower or 'count' in question_lower:
+                # Try to extract the count value
+                import re
+                count_match = re.search(r'\((\d+),?\)', result_str)
+                if count_match:
+                    return f"**{count_match.group(1)}** records found."
+            
+            # For list queries - show the data directly
+            response_lines = [f"Found **{rows}** result(s):\n"]
+            
+            # Parse and format each row
+            import ast
+            import re
+            from decimal import Decimal
+            
+            # Pre-process result string to handle Decimal and datetime
+            processed_str = result_str
+            # Convert Decimal('1.23') to 1.23
+            processed_str = re.sub(r"Decimal\('([^']+)'\)", r'\1', processed_str)
+            # Convert datetime.datetime(2025, 12, 23, 11, 8, 56) to '2025-12-23 11:08'
+            def format_datetime(m):
+                y, mo, d, h, mi = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+                return f"'{y}-{int(mo):02d}-{int(d):02d} {int(h):02d}:{int(mi):02d}'"
+            processed_str = re.sub(
+                r'datetime\.datetime\((\d+), (\d+), (\d+), (\d+), (\d+), \d+\)',
+                format_datetime,
+                processed_str
+            )
+            
+            try:
+                # Try to safely evaluate the processed result
+                data = ast.literal_eval(processed_str)
+                if isinstance(data, list):
+                    for i, row in enumerate(data[:20], 1):  # Limit to 20 rows
+                        if isinstance(row, tuple):
+                            # Format tuple as bullet point
+                            formatted_parts = []
+                            for v in row:
+                                if v is None:
+                                    continue
+                                elif isinstance(v, (int, float)):
+                                    if v > 100000:
+                                        # Likely bytes, convert to MB
+                                        formatted_parts.append(f"{v/1048576:.2f} MB")
+                                    elif isinstance(v, float):
+                                        formatted_parts.append(f"{v:.2f} MB")
+                                    else:
+                                        formatted_parts.append(str(v))
+                                else:
+                                    formatted_parts.append(str(v))
+                            response_lines.append(f"• {' | '.join(formatted_parts)}")
+                        else:
+                            response_lines.append(f"• {row}")
+                    
+                    if len(data) > 20:
+                        response_lines.append(f"\n... and {len(data) - 20} more records.")
+                else:
+                    response_lines.append(f"• {data}")
+            except Exception as e:
+                logger.debug(f"AST parse failed: {e}, using regex fallback")
+                # Fallback: extract with regex
+                clean_result = processed_str.replace("[(", "").replace(")]", "")
+                clean_result = clean_result.replace("), (", "\n• ").replace("(", "• ").replace(")", "")
+                clean_result = clean_result.replace("'", "").replace(", ", " | ")
+                response_lines.append(clean_result[:2000])
+            
+            return "\n".join(response_lines)
+            
+        except Exception as e:
+            logger.warning(f"Result formatting failed: {e}")
+            # Fallback: return raw result
+            return f"Query results:\n```\n{str(result)[:1000]}\n```"
     
     def get_schema_info(self) -> str:
         """Get database schema information."""

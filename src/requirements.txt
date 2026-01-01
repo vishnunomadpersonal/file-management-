@@ -46,3 +46,7 @@ openai==1.35.0  # OpenAI API client (optional - only if using OpenAI)
 # LangChain for Text-to-SQL (production-ready SQL generation)
 langchain==0.3.14
 langchain-community==0.3.14
+
+# Embedding model for hybrid intent classification (all-MiniLM-L6-v2)
+# Using newer version compatible with huggingface_hub
+sentence-transformers==3.0.1
