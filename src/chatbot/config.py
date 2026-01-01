@@ -105,14 +105,27 @@ Important rules:
 - For navigation requests, include the marker AND a helpful response.
 - Always be professional and friendly.
 
-Available navigation paths:
-- /dashboard - Main dashboard
-- /dashboard/files - User's files  
-- /dashboard/all-files - All platform files (admin only)
-- /dashboard/users - User management (admin only)
-- /dashboard/settings - Account settings
-- /dashboard/approvals - File approvals
-- /dashboard/organizations - Organization management (super admin)
+Available navigation paths (with role requirements):
+- /dashboard - Main dashboard overview (all roles)
+- /dashboard/files - User's files (all roles)
+- /dashboard/all-files - All platform files (super_admin only)
+- /dashboard/users - User management (super_admin only)
+- /dashboard/settings - Account settings (all roles)
+- /dashboard/approvals - Pending user/org approvals (super_admin, org_admin)
+- /dashboard/organizations - Organization management (super_admin only)
+- /dashboard/quarantine - Quarantined/infected files (super_admin only)
+- /dashboard/team - Team members (org_admin, manager)
+- /dashboard/analytics - Analytics and reports (super_admin, org_admin, manager)
+- /dashboard/api-keys - API key management (super_admin, org_admin)
+- /dashboard/infrastructure - Server/service status (super_admin only)
+- /dashboard/system-logs - System logs for debugging issues (super_admin only)
+- /dashboard/database - Database management (super_admin only)
+- /dashboard/api-gateway - API Gateway management (super_admin only)
+- /dashboard/security - Security settings (super_admin, org_admin)
+
+When user asks about debugging, errors, issues, logs, or system problems, suggest /dashboard/system-logs.
+When user asks about virus scans or infected files, suggest /dashboard/quarantine.
+When user asks about servers or services, suggest /dashboard/infrastructure.
 
 User context will be provided with each message including their role and permissions.
 """

@@ -3,7 +3,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { chatApi, ChatMessage, ChatAction, ChatHealthResponse } from '@/lib/chatApi';
+import { filesApi } from '@/lib/api';
 import {
   MessageCircle,
   X,
@@ -19,7 +21,9 @@ import {
   AlertCircle,
   Loader2,
   Minimize2,
-  Maximize2
+  Maximize2,
+  Paperclip,
+  Upload
 } from 'lucide-react';
 
 // ============================================================================
@@ -226,6 +230,8 @@ const QuickActions: React.FC<QuickActionsProps> = ({ onAction, isDark, disabled 
 export default function ChatWidget() {
   const router = useRouter();
   const { isDark } = useTheme();
+  const { user } = useAuth();
+  const currentUserId = user?.id || '';
   
   // State
   const [isOpen, setIsOpen] = useState(false);
@@ -343,12 +349,141 @@ export default function ChatWidget() {
         }
         break;
 
+      case 'upload':
+        // Trigger file upload
+        const fileInput = document.getElementById('chat-file-upload') as HTMLInputElement;
+        if (fileInput) {
+          fileInput.click();
+        }
+        break;
+
       case 'info':
       case 'error':
         // These are informational only
         break;
     }
   }, [router]);
+
+  // Upload state
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Handle file upload from chat - using the same API as Files page
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    // Check if user is logged in
+    if (!currentUserId) {
+      setMessages(prev => [...prev, {
+        id: `error-${Date.now()}`,
+        role: 'assistant',
+        content: '❌ **Upload Failed**\n\nYou must be logged in to upload files.',
+        timestamp: new Date(),
+        isError: true,
+      }]);
+      event.target.value = '';
+      return;
+    }
+
+    const file = files[0];
+    const uploadMsgId = `upload-${Date.now()}`;
+    
+    // Add user message showing file selection
+    setMessages(prev => [...prev, {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: `📎 ${file.name}`,
+      timestamp: new Date(),
+    }]);
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    // Add upload status message
+    setMessages(prev => [...prev, {
+      id: uploadMsgId,
+      role: 'system' as const,
+      content: '⏳ Uploading...',
+      timestamp: new Date(),
+    }]);
+
+    try {
+      // Use the same uploadFile method as the Files page
+      const uploadedFile = await filesApi.uploadFile(
+        file,
+        currentUserId,
+        undefined, // appointmentId
+        user?.organization_id || undefined, // organizationId
+        undefined, // folderId
+        (progress) => {
+          setUploadProgress(progress);
+          setMessages(prev => prev.map(m => 
+            m.id === uploadMsgId 
+              ? { ...m, content: `📤 Uploading... ${progress}%` }
+              : m
+          ));
+        }
+      );
+
+      // Success! Show virus scan status
+      const virusStatusIcon = uploadedFile.virus_scan_status === 'clean' ? '✅' : 
+                              uploadedFile.virus_scan_status === 'infected' ? '🛡️' :
+                              uploadedFile.virus_scan_status === 'pending' ? '⏳' : '❓';
+      const virusStatusText = uploadedFile.virus_scan_status === 'clean' ? 'Clean' :
+                              uploadedFile.virus_scan_status === 'infected' ? 'Infected' :
+                              uploadedFile.virus_scan_status === 'pending' ? 'Scanning...' :
+                              uploadedFile.virus_scan_status || 'Unknown';
+      
+      setUploadProgress(100);
+      setMessages(prev => prev.filter(m => m.id !== uploadMsgId));
+      setMessages(prev => [...prev, {
+        id: `success-${Date.now()}`,
+        role: 'assistant',
+        content: `✅ **Upload Complete!**\n\n**File:** ${uploadedFile.filename}\n**Size:** ${(uploadedFile.size / 1024).toFixed(1)} KB\n**Virus Scan:** ${virusStatusIcon} ${virusStatusText}\n\nYour file has been uploaded successfully and is ready to use.`,
+        timestamp: new Date(),
+        suggestions: ['My files', 'Upload another', 'Storage info'],
+      }]);
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+      console.error('Upload error:', err);
+      
+      setMessages(prev => prev.filter(m => m.id !== uploadMsgId));
+      
+      if (errorMessage.toLowerCase().includes('virus') || 
+          errorMessage.toLowerCase().includes('malware') ||
+          errorMessage.toLowerCase().includes('infected')) {
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: `🛡️ **Security Alert**\n\nA virus has been detected in "${file.name}". The file has been quarantined for your safety.\n\nPlease ensure your files are virus-free before uploading.`,
+          timestamp: new Date(),
+          suggestions: ['My files', 'Help'],
+        }]);
+      } else {
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          role: 'assistant',
+          content: `❌ **Upload Failed**\n\n${errorMessage}\n\nPlease try again or contact support if the issue persists.`,
+          timestamp: new Date(),
+          suggestions: ['Try again', 'Help'],
+        }]);
+      }
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+      event.target.value = '';
+    }
+  }, [currentUserId, user?.organization_id]);
+
+  // Trigger file upload dialog
+  const triggerFileUpload = useCallback(() => {
+    const fileInput = document.getElementById('chat-file-upload') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.click();
+    }
+  }, []);
 
   // Send message
   const sendMessage = useCallback(async (content: string) => {
@@ -599,9 +734,60 @@ export default function ChatWidget() {
               <div className={`p-4 border-t ${
                 isDark ? 'border-gray-800 bg-gray-900' : 'border-gray-100 bg-white'
               }`}>
+                {/* Upload Progress Bar */}
+                {isUploading && (
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-medium ${isDark ? 'text-purple-400' : 'text-blue-600'}`}>
+                        Uploading...
+                      </span>
+                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        {uploadProgress}%
+                      </span>
+                    </div>
+                    <div className={`w-full h-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                      <div
+                        className={`h-2 rounded-full transition-all duration-300 ${
+                          isDark ? 'bg-purple-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {/* Hidden file input */}
+                <input
+                  type="file"
+                  id="chat-file-upload"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  accept="*/*"
+                  disabled={isUploading}
+                />
                 <div className={`flex items-end gap-2 p-2 rounded-xl ${
                   isDark ? 'bg-gray-800' : 'bg-gray-100'
                 }`}>
+                  {/* Attachment button */}
+                  <button
+                    onClick={triggerFileUpload}
+                    disabled={isLoading || isUploading}
+                    className={`p-2 rounded-lg transition-all ${
+                      isUploading
+                        ? isDark
+                          ? 'text-purple-400 bg-purple-900/30'
+                          : 'text-blue-500 bg-blue-100'
+                        : isDark
+                          ? 'text-gray-400 hover:text-purple-400 hover:bg-gray-700'
+                          : 'text-gray-500 hover:text-blue-500 hover:bg-gray-200'
+                    } disabled:opacity-50`}
+                    title={isUploading ? "Uploading..." : "Attach file"}
+                  >
+                    {isUploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Paperclip className="w-5 h-5" />
+                    )}
+                  </button>
                   <textarea
                     ref={inputRef}
                     value={input}

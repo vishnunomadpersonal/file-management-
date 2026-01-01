@@ -18,6 +18,9 @@ from .providers.factory import get_provider, get_provider_health
 from .providers.rule_based import RuleBasedProvider
 from .config import chatbot_config
 
+# Text-to-SQL using LangChain (production-ready)
+from .text_to_sql_langchain import get_sql_agent, LangChainSQLAgent
+
 logger = logging.getLogger(__name__)
 
 
@@ -156,32 +159,182 @@ class ChatbotOrchestrator:
     - Session management
     - User context and RBAC
     
-    Uses a hybrid approach:
-    - Rule-based provider for navigation and common commands (reliable actions)
-    - LLM provider for complex/open-ended queries
+    Uses a SMART hybrid approach:
+    - Rule-based: ONLY for explicit navigation commands & greetings (instant)
+    - LLM: Everything else including ambiguous queries (understands intent)
+    
+    This ensures:
+    - "go to files" → Rule-based (instant navigation)
+    - "what are files" → LLM (explains, doesn't navigate)
+    - "my permissions" → LLM (explains, doesn't navigate)
     """
     
-    # Patterns that should use rule-based provider for reliable action handling
-    NAVIGATION_PATTERNS = [
-        # General navigation commands
-        re.compile(r'\b(go to|take me to|navigate|show me|open)\b.*\b(files?|dashboard|settings|users?|organizations?|approvals?|analytics?|quarantine|security|logs?|team|infrastructure|database|api.?keys?|api.?gateway|platform.?admin)\b', re.IGNORECASE),
-        re.compile(r'\b(my files?|show files?|view files?|all files?)\b', re.IGNORECASE),
-        re.compile(r'\b(upload|download|share|delete)\b.*\bfile', re.IGNORECASE),
-        re.compile(r'\b(list|show|view)\b.*\b(users?|organizations?|team|logs?)\b', re.IGNORECASE),
-        re.compile(r'\b(hi|hello|hey|greetings)\b', re.IGNORECASE),
-        re.compile(r'\b(help|what can you do|how to)\b', re.IGNORECASE),
-        re.compile(r'\b(my role|permissions|who am i)\b', re.IGNORECASE),
-        # Specific page keywords
-        re.compile(r'\b(analytics?|reports?|statistics?|metrics?)\b', re.IGNORECASE),
-        re.compile(r'\b(quarantine|quarantined|infected|virus|malware)\b', re.IGNORECASE),
-        re.compile(r'\b(security|access control|rbac)\b', re.IGNORECASE),
-        re.compile(r'\b(system logs?|audit|history)\b', re.IGNORECASE),
-        re.compile(r'\b(team|members?|colleagues?|staff)\b', re.IGNORECASE),
-        re.compile(r'\b(infrastructure|infra|servers?)\b', re.IGNORECASE),
-        re.compile(r'\b(database|db|mysql|storage)\b', re.IGNORECASE),
-        re.compile(r'\b(api.?keys?|tokens?)\b', re.IGNORECASE),
-        re.compile(r'\b(api.?gateway|gateway|kong)\b', re.IGNORECASE),
-        re.compile(r'\b(platform.?admin|admin panel)\b', re.IGNORECASE),
+    # EXPLICIT navigation patterns - must have action verb + target
+    # These are CERTAIN to be navigation requests
+    EXPLICIT_NAVIGATION_PATTERNS = [
+        # Direct navigation commands with action verbs
+        re.compile(r'\b(go to|take me to|navigate to|open|switch to)\s+(the\s+)?(my\s+)?(files?|dashboard|settings|users?|organizations?|approvals?|analytics?|quarantine|security|logs?|team|infrastructure|database|api.?keys?|api.?gateway|platform.?admin|home)\b', re.IGNORECASE),
+        re.compile(r'\b(go|take me|navigate)\s+(to\s+)?(the\s+)?(my\s+)?files?\b', re.IGNORECASE),
+        re.compile(r'\b(show|open)\s+(me\s+)?(the\s+)?(my\s+)?(files?|dashboard|settings)\s*(page)?\b', re.IGNORECASE),
+    ]
+    
+    # DATA QUERY patterns - instant data lookups (rule-based handles with real API calls)
+    DATA_QUERY_PATTERNS = [
+        # File queries
+        re.compile(r'\b(recent files?|latest files?|last (uploaded|added)|my recent|new files?)\b', re.IGNORECASE),
+        re.compile(r'\b(how many files?|file count|number of files?|total files?)\b', re.IGNORECASE),
+        re.compile(r'\b(search|find|look for)\s+(files?|documents?)\b', re.IGNORECASE),
+        re.compile(r'\b(storage|space|quota|disk|how much space)\b', re.IGNORECASE),
+        re.compile(r'\b(quarantined|infected|virus|threats?)\s*(files?)?\b', re.IGNORECASE),
+        re.compile(r'\b(files?\s+by\s+type|file\s+types?|extension\s+breakdown)\b', re.IGNORECASE),
+        # Folder queries
+        re.compile(r'\b(folder(s)?\s*(stats?|count|info|structure)|how many folders?|my folders?)\b', re.IGNORECASE),
+        re.compile(r'\b(folder\s*tree|folder\s*structure|folder\s*hierarchy|directory\s*tree)\b', re.IGNORECASE),
+        re.compile(r'\b(folder\s*contents?|what\'?s?\s*in\s*(folder|directory)|inside\s*folder|contents?\s*of)\b', re.IGNORECASE),
+        # Organization queries
+        re.compile(r'\b(org(anization)?\s*(stats?|info|summary)|how many org|orgs? joined|recent org|new org)\b', re.IGNORECASE),
+        re.compile(r'\b(all\s*org(anization)?s?|list\s*(all)?\s*org(anization)?s?)\b', re.IGNORECASE),
+        re.compile(r'\b(org\s*quota|organization\s*quota|quota\s*info|storage\s*quota)\b', re.IGNORECASE),
+        # User queries
+        re.compile(r'\b(user stats?|how many users?|user count|recent users?|new users?|who joined)\b', re.IGNORECASE),
+        # Pipeline/ML queries
+        re.compile(r'\b(pipeline\s*(stats?|status|info)|ml\s*(stats?|status)|model\s*(stats?|info)|deltas?|training)\b', re.IGNORECASE),
+        re.compile(r'\b(pipeline\s*deltas?|data\s*deltas?|pending\s*deltas?)\b', re.IGNORECASE),
+        re.compile(r'\b(cost\s*savings?|ml\s*cost|savings?\s*report|optimization\s*cost)\b', re.IGNORECASE),
+        re.compile(r'\b(model\s*versions?|version\s*history|ml\s*versions?)\b', re.IGNORECASE),
+        re.compile(r'\b(feedback\s*(stats?|status|loop)|training\s*feedback)\b', re.IGNORECASE),
+        # Task/Job queries
+        re.compile(r'\b(task(s)?\s*(stats?|status)|job(s)?\s*(stats?|status)|background|celery|pending tasks?)\b', re.IGNORECASE),
+        # Appointment queries
+        re.compile(r'\b(appointment(s)?|meeting(s)?|schedule|upcoming)\b', re.IGNORECASE),
+        # System queries
+        re.compile(r'\b(system\s*(overview|status|health)|platform\s*(stats?|overview)|full stats?)\b', re.IGNORECASE),
+        # Security/virus queries
+        re.compile(r'\b(virus\s*(scan|stats?)|security\s*(stats?|status)|scan\s*(stats?|results?))\b', re.IGNORECASE),
+        # Activity/summary
+        re.compile(r'\b(activity|uploads? (this|today|week)|my (info|summary|stats?|overview))\b', re.IGNORECASE),
+        # Session/Keycloak queries
+        re.compile(r'\b(user\s*sessions?|active\s*sessions?|login\s*sessions?|session\s*info)\b', re.IGNORECASE),
+        re.compile(r'\b(available\s*roles?|list\s*roles?|role\s*list|all\s*roles?)\b', re.IGNORECASE),
+        re.compile(r'\b(user\s*roles?|roles?\s*for\s+\S+@\S+)\b', re.IGNORECASE),
+        re.compile(r'\b(token\s*info|my\s*token|current\s*session)\b', re.IGNORECASE),
+        # ADMIN-ONLY patterns (role check happens in handler)
+        re.compile(r'\b(list\s*(all)?\s*users?|all users?|show\s*(all)?\s*users?|user list)\b', re.IGNORECASE),
+        re.compile(r'\b(find|lookup|search|get|show)\s+user\s+\S+\b', re.IGNORECASE),
+        re.compile(r'\b(find|lookup|search|get|show)\s+org\s+\S+\b', re.IGNORECASE),
+        re.compile(r'\b(locked|inactive|disabled|suspended)\s*users?\b', re.IGNORECASE),
+        re.compile(r'\b(failed|error|broken)\s*tasks?\b', re.IGNORECASE),
+        re.compile(r'\b(audit|audit log|activity log|audit summary|admin summary)\b', re.IGNORECASE),
+        # USER ACTIONS (all users)
+        re.compile(r'\b(upload|upload file|add file|new file|can i upload|how.*(do i |to )?upload|want to upload|upload.*(via|through|in|here|chat))\b', re.IGNORECASE),
+        # API status/health
+        re.compile(r'\b(api.*(status|down|active|health)|system.*(status|health|down)|anything down|services?.*(down|active|status))\b', re.IGNORECASE),
+        # API status/health
+        re.compile(r'\b(api.*(status|down|active|health)|system.*(status|health|down)|anything down|services?.*(down|active|status))\b', re.IGNORECASE),
+        re.compile(r'\b(create|new|make)\s+(a\s*)?(folder|directory)\b', re.IGNORECASE),
+        re.compile(r'\b(share\s+(file|document)\s+\w+\s+(with|to)\s+\S+@\S+)\b', re.IGNORECASE),
+        re.compile(r'\b(download\s*link|get\s*link|generate\s*link)\b', re.IGNORECASE),
+        re.compile(r'\b(move\s*folder|rename\s*folder)\b', re.IGNORECASE),
+        re.compile(r'\b(create|new|schedule)\s*(appointment|meeting)\b', re.IGNORECASE),
+        re.compile(r'\b(submit\s*feedback|send\s*feedback)\b', re.IGNORECASE),
+        # ADMIN ACTIONS (role check happens in handler)
+        re.compile(r'\b(reset password|password reset)\s+(for\s+)?\S+@\S+\b', re.IGNORECASE),
+        re.compile(r'\b(lock|suspend|disable)\s+(user\s+)?\S+@\S+\b', re.IGNORECASE),
+        re.compile(r'\b(unlock|unsuspend|enable|activate)\s+(user\s+)?\S+@\S+\b', re.IGNORECASE),
+        re.compile(r'\b(create|add|new)\s*user\s+\S+@\S+\b', re.IGNORECASE),
+        re.compile(r'\b(delete|remove)\s*user\s+\S+@\S+\b', re.IGNORECASE),
+        re.compile(r'\b(assign|set|change)\s*role\b', re.IGNORECASE),
+        re.compile(r'\b(create|new)\s*org(anization)?\b', re.IGNORECASE),
+        re.compile(r'\b(delete|remove)\s*org(anization)?\b', re.IGNORECASE),
+        re.compile(r'\b(update|edit)\s*org(anization)?\b', re.IGNORECASE),
+        re.compile(r'\b(trigger|run|start)\s*pipeline\b', re.IGNORECASE),
+        re.compile(r'\b(train|retrain)\s*router\b', re.IGNORECASE),
+        re.compile(r'\b(rollback)\s*model\b', re.IGNORECASE),
+        re.compile(r'\b(force\s*logout|terminate\s*session)\b', re.IGNORECASE),
+        re.compile(r'\b(require|enable|enforce)\s*mfa\b', re.IGNORECASE),
+        re.compile(r'\b(disable\s*mfa|remove\s*mfa)\b', re.IGNORECASE),
+        # API Keys & Audit
+        re.compile(r'\b(api\s*keys?|manage\s*api\s*keys?|create\s*api\s*key|revoke\s*api\s*key)\b', re.IGNORECASE),
+        re.compile(r'\b(audit\s*logs?|activity\s*logs?|view\s*logs?)\b', re.IGNORECASE),
+        # Pipeline Advanced
+        re.compile(r'\b(detect\s*changes?|scan\s*changes?)\b', re.IGNORECASE),
+        re.compile(r'\b(process\s*delta|run\s*delta)\b', re.IGNORECASE),
+        re.compile(r'\b(set\s*strategy|override\s*strategy|use\s*strategy)\b', re.IGNORECASE),
+        # Feedback Advanced
+        re.compile(r'\b(approve\s*feedback|reject\s*feedback)\b', re.IGNORECASE),
+        re.compile(r'\b(export\s*training\s*data|export\s*feedback)\b', re.IGNORECASE),
+        # Model Advanced
+        re.compile(r'\b(compare\s*versions?|version\s*diff|model\s*diff)\b', re.IGNORECASE),
+        re.compile(r'\b(export\s*model|download\s*model)\b', re.IGNORECASE),
+        re.compile(r'\b(model\s*metrics|metrics\s*history)\b', re.IGNORECASE),
+        # Keycloak Advanced
+        re.compile(r'\b(user\s*attributes?)\b', re.IGNORECASE),
+        # MCP
+        re.compile(r'\b(mcp\s*status|mcp\s*tools?|mcp\s*resources?|call\s*mcp)\b', re.IGNORECASE),
+    ]
+    
+    # Complex data queries that need TEXT-TO-SQL (LLM generates SQL dynamically)
+    # These are questions that require joining tables, aggregation, or complex filters
+    TEXT_TO_SQL_PATTERNS = [
+        # "Who" questions about users/uploaders
+        re.compile(r'\bwho\s+(uploaded|created|owns?|has|made)\b', re.IGNORECASE),
+        re.compile(r'\bwho(\'?s|\s+is)\s+(the\s+)?(top|most|biggest|largest)\b', re.IGNORECASE),
+        # "Which" questions
+        re.compile(r'\bwhich\s+(user|org|file|folder)s?\s+(have|has|is|are|uploaded|created)\b', re.IGNORECASE),
+        # Rankings/Top N
+        re.compile(r'\b(top|bottom)\s+\d+\s+(user|org|file|uploader)s?\b', re.IGNORECASE),
+        re.compile(r'\b(most|least)\s+(active|files?|uploads?|storage)\b', re.IGNORECASE),
+        # Time-based complex queries
+        re.compile(r'\b(last|past|previous)\s+(\d+\s+)?(week|month|day|year)s?\b', re.IGNORECASE),
+        re.compile(r'\b(this|current)\s+(week|month|day|year)\b', re.IGNORECASE),
+        re.compile(r'\b(since|after|before|between)\s+\d', re.IGNORECASE),
+        # Aggregations
+        re.compile(r'\b(average|avg|total|sum|count|max|min)\s+(file\s*)?size\b', re.IGNORECASE),
+        re.compile(r'\b(breakdown|distribution|group)\s+by\b', re.IGNORECASE),
+        # Cross-table queries
+        re.compile(r'\bfiles?\s+(per|by|for each)\s+(user|org)\b', re.IGNORECASE),
+        re.compile(r'\busers?\s+(in|from|of)\s+org\b', re.IGNORECASE),
+        # Specific attribute queries
+        re.compile(r'\b(email|name|role|status)s?\s+(of|for)\s+(user|org|file)s?\b', re.IGNORECASE),
+        re.compile(r'\blist\s+(out|all)?\s*the\b.*\b(name|email|user|admin|org)\b', re.IGNORECASE),
+        # Complex/vague questions that need SQL
+        re.compile(r'\b(how\s+much\s+storage|storage\s+used)\s+by\b', re.IGNORECASE),
+        re.compile(r'\bcompare\s+(user|org)s?\b', re.IGNORECASE),
+        re.compile(r'\btrends?\s+(in|of|for)\b', re.IGNORECASE),
+    ]
+    
+    # Simple greetings - no need to call LLM for these
+    # Comprehensive list of real-world greeting patterns for instant response
+    GREETING_PATTERNS = [
+        # Basic greetings with optional suffixes
+        re.compile(r'^(hi|hello|hey|hiya|heya|hola|howdy|yo)[\s\!\.\']*((there|bot|assistant|buddy|friend|all|everyone)?[\s\!\.\']*)*$', re.IGNORECASE),
+        # Extended greetings
+        re.compile(r'^(greetings|salutations|sup|wassup|whats\s*up|what\'?s\s*up)[\s\!\.\']*$', re.IGNORECASE),
+        # Time-based greetings
+        re.compile(r'^good\s*(morning|afternoon|evening|day|night)[\s\!\.\']*$', re.IGNORECASE),
+        # Thanks/gratitude
+        re.compile(r'^(thanks|thank\s*you|thx|ty|cheers|much\s*appreciated|appreciate\s*it|ta)[\s\!\.\']*(so\s*much|very\s*much|a\s*lot|a\s*bunch|a\s*ton)?[\s\!\.\',]*$', re.IGNORECASE),
+        re.compile(r'^thank\s*you\s*(so\s*much|very\s*much|a\s*lot|a\s*bunch)[\s\!\.\',]*$', re.IGNORECASE),
+        # Farewells
+        re.compile(r'^(bye|goodbye|see\s*you|see\s*ya|later|cya|ciao|adios|farewell|peace|peace\s*out)[\s\!\.\']*$', re.IGNORECASE),
+        re.compile(r'^(exit|quit|close|end\s*chat|stop|leave)[\s\!\.\']*$', re.IGNORECASE),
+        re.compile(r'^(bye\s*bye|good\s*bye|take\s*care|have\s*a\s*(good|nice|great)\s*(day|one))[\s\!\.\']*$', re.IGNORECASE),
+        # Acknowledgments
+        re.compile(r'^(ok|okay|k|kk|got\s*it|understood|alright|right|sure|cool|nice|great|awesome|perfect)[\s\!\.\']*$', re.IGNORECASE),
+        re.compile(r'^(sounds\s*good|works\s*for\s*me|that\s*works|no\s*problem|no\s*worries|np|nw)[\s\!\.\']*$', re.IGNORECASE),
+        # Casual check-ins
+        re.compile(r'^(how\s*are\s*you|how\'?s\s*it\s*going|how\s*you\s*doing|what\'?s\s*good)[\s\!\?\.\']*$', re.IGNORECASE),
+        re.compile(r'^(you\s*there|anyone\s*there|hello\?|hi\?|you\s*around)[\s\!\?\.\']*$', re.IGNORECASE),
+        # Start conversation
+        re.compile(r'^(start|begin|let\'?s\s*go|let\'?s\s*start|ready)[\s\!\.\']*$', re.IGNORECASE),
+    ]
+    
+    # Patterns that indicate user wants INFORMATION (should go to LLM)
+    # These override navigation even if page keywords are present
+    INFORMATION_PATTERNS = [
+        re.compile(r'\b(what\s+(is|are|does)|explain|tell me about|how\s+(does|do|to)|describe|why)\b', re.IGNORECASE),
+        re.compile(r'\b(can\s+i|can\s+you|could\s+you|would\s+you)\b', re.IGNORECASE),
+        re.compile(r'\?$'),  # Questions should go to LLM
     ]
     
     def __init__(self):
@@ -208,11 +361,56 @@ class ChatbotOrchestrator:
         """Check if chatbot is enabled."""
         return chatbot_config.enabled
     
-    def _should_use_rule_based(self, message: str) -> bool:
-        """Check if message should be handled by rule-based provider."""
-        for pattern in self.NAVIGATION_PATTERNS:
+    def _should_use_text_to_sql(self, message: str) -> bool:
+        """
+        Check if the message should use Text-to-SQL for dynamic query generation.
+        
+        Text-to-SQL handles complex, vague, or cross-table data questions that
+        can't be easily mapped to a single API endpoint.
+        """
+        message = message.strip()
+        
+        for pattern in self.TEXT_TO_SQL_PATTERNS:
             if pattern.search(message):
                 return True
+        return False
+    
+    def _should_use_rule_based(self, message: str) -> bool:
+        """
+        Smart hybrid routing:
+        1. If it looks like a question/info request → LLM
+        2. If it's an explicit navigation command → Rule-based
+        3. If it's a greeting → Rule-based
+        4. Everything else → LLM (let it understand intent)
+        """
+        message = message.strip()
+        
+        # First check: Is this a DATA QUERY or ACTION?
+        # These should use rule-based (with real APIs)
+        # Check this BEFORE information patterns to catch "can i upload" etc.
+        for pattern in self.DATA_QUERY_PATTERNS:
+            if pattern.search(message):
+                return True  # Use rule-based (with real data)
+        
+        # Second check: Is this an information/question request?
+        # If yes, use LLM for understanding
+        for pattern in self.INFORMATION_PATTERNS:
+            if pattern.search(message):
+                return False  # Use LLM
+        
+        
+        # Third check: Is this an explicit navigation command?
+        for pattern in self.EXPLICIT_NAVIGATION_PATTERNS:
+            if pattern.search(message):
+                return True  # Use rule-based
+        
+        # Fourth check: Is this a simple greeting?
+        for pattern in self.GREETING_PATTERNS:
+            if pattern.search(message):
+                return True  # Use rule-based
+        
+        # Default: Use LLM for everything else
+        # LLM is better at understanding ambiguous intent
         return False
     
     async def chat(
@@ -225,6 +423,7 @@ class ChatbotOrchestrator:
         Process a chat message.
         
         Uses hybrid approach:
+        - Text-to-SQL for complex data queries (LLM generates SQL)
         - Rule-based for navigation/commands (reliable actions)
         - LLM for complex queries
         
@@ -248,23 +447,35 @@ class ChatbotOrchestrator:
         # Add user message to history
         session.add_message(MessageRole.USER, message)
         
-        # Hybrid approach: use rule-based for navigation, LLM for complex queries
-        if self._should_use_rule_based(message):
-            logger.debug(f"Using rule-based provider for message: {message[:50]}...")
-            response = await self.rule_based.chat(
-                message=message,
-                history=session.history[:-1],
-                user_context=user_context,
-                system_prompt=chatbot_config.system_prompt
-            )
-        else:
-            logger.debug(f"Using LLM provider for message: {message[:50]}...")
-            response = await self.provider.chat(
-                message=message,
-                history=session.history[:-1],  # Exclude current message
-                user_context=user_context,
-                system_prompt=chatbot_config.system_prompt
-            )
+        response = None
+        
+        # FIRST: Check for complex data queries that need Text-to-SQL
+        if self._should_use_text_to_sql(message):
+            logger.info(f"Using TEXT-TO-SQL for message: {message[:50]}...")
+            try:
+                response = await self._handle_text_to_sql(message, user_context)
+            except Exception as e:
+                logger.error(f"Text-to-SQL failed, falling back to LLM: {e}")
+                # Fall through to LLM on error
+        
+        # SECOND: Hybrid approach for navigation and other queries
+        if response is None:
+            if self._should_use_rule_based(message):
+                logger.debug(f"Using rule-based provider for message: {message[:50]}...")
+                response = await self.rule_based.chat(
+                    message=message,
+                    history=session.history[:-1],
+                    user_context=user_context,
+                    system_prompt=chatbot_config.system_prompt
+                )
+            else:
+                logger.debug(f"Using LLM provider for message: {message[:50]}...")
+                response = await self.provider.chat(
+                    message=message,
+                    history=session.history[:-1],  # Exclude current message
+                    user_context=user_context,
+                    system_prompt=chatbot_config.system_prompt
+                )
         
         # Add assistant response to history
         session.add_message(MessageRole.ASSISTANT, response.message)
@@ -274,6 +485,65 @@ class ChatbotOrchestrator:
             "response": response.to_dict(),
             "message_count": len(session.history)
         }
+    
+    async def _handle_text_to_sql(self, message: str, user_context: UserContext) -> ChatResponse:
+        """
+        Handle complex data queries using LangChain Text-to-SQL Agent.
+        
+        The LLM generates a SQL query based on the natural language question,
+        then we execute it safely and format the results.
+        """
+        try:
+            # Get the SQL Agent (singleton)
+            sql_agent = get_sql_agent()
+            
+            # Prepare user context for access control
+            user_info = {
+                "user_id": user_context.user_id,
+                "organization_id": getattr(user_context, 'organization_id', None),
+                "role": user_context.role,
+                "permissions": user_context.permissions
+            }
+            
+            # Ask the question - this generates SQL, executes, and formats response
+            result = await sql_agent.ask(
+                question=message,
+                user_info=user_info
+            )
+            
+            if result.get("success"):
+                response_text = result["answer"]
+                
+                # Add some metadata if available
+                if result.get("row_count") is not None:
+                    if result["row_count"] == 0:
+                        response_text += "\n\n📊 *No matching records found.*"
+                    elif result.get("was_truncated"):
+                        response_text += f"\n\n📊 *Showing top {result['row_count']} results (limited for performance).*"
+                
+                return ChatResponse(
+                    message=response_text,
+                    metadata={
+                        "source": "text_to_sql",
+                        "row_count": result.get("row_count", 0),
+                        "query_generated": True,
+                        "sql_query": result.get("query", "")
+                    }
+                )
+            else:
+                # Query failed - return error message
+                error_msg = result.get("error", "Unable to process your data query.")
+                return ChatResponse(
+                    message=f"I couldn't find that information. {error_msg}\n\nTry being more specific about what data you're looking for.",
+                    metadata={
+                        "source": "text_to_sql",
+                        "error": True
+                    }
+                )
+                
+        except Exception as e:
+            logger.error(f"Text-to-SQL error: {e}", exc_info=True)
+            raise  # Re-raise to fall back to LLM
     
     async def get_suggestions(self, user_context: UserContext) -> List[str]:
         """Get initial suggestions based on user context."""

@@ -42,3 +42,7 @@ pytest-asyncio==0.23.5
 # Chatbot - AI Providers
 openai==1.35.0  # OpenAI API client (optional - only if using OpenAI)
 # ollama is accessed via HTTP, no package needed
+
+# LangChain for Text-to-SQL (production-ready SQL generation)
+langchain==0.3.14
+langchain-community==0.3.14

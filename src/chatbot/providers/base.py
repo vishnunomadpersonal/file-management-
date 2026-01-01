@@ -25,6 +25,9 @@ class ActionType(str, Enum):
     CONFIRM = "confirm"             # Ask for confirmation before action
     INFO = "info"                   # Just information, no action
     ERROR = "error"                 # Error occurred
+    UPLOAD = "upload"               # Trigger file upload dialog
+    CREATE = "create"               # Create a resource (folder, etc.)
+    API_CALL = "api_call"           # Make an API call (admin actions)
 
 
 @dataclass
@@ -82,9 +85,10 @@ class ChatResponse:
     provider: str = "unknown"
     processing_time_ms: int = 0
     tokens_used: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None  # Additional metadata (e.g., text_to_sql source)
     
     def to_dict(self) -> dict:
-        return {
+        result = {
             "message": self.message,
             "actions": [a.to_dict() for a in self.actions],
             "suggestions": self.suggestions,
@@ -92,6 +96,9 @@ class ChatResponse:
             "processing_time_ms": self.processing_time_ms,
             "tokens_used": self.tokens_used
         }
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
 
 
 @dataclass

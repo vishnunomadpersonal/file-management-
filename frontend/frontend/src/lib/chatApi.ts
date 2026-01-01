@@ -14,7 +14,7 @@ const API_BASE = `${API_ORIGIN}/api/v1/chat`;
 // ============================================================================
 
 export interface ChatAction {
-  type: 'navigate' | 'execute' | 'confirm' | 'info' | 'error';
+  type: 'navigate' | 'execute' | 'confirm' | 'info' | 'error' | 'upload';
   payload: Record<string, unknown>;
   description: string;
   requires_confirmation: boolean;
@@ -92,6 +92,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     if (response.status === 503) {
       throw new Error('Chatbot is currently disabled');
+    }
+    // Handle token expiration - trigger logout
+    if (response.status === 401 || 
+        (data?.detail && typeof data.detail === 'string' && 
+         (data.detail.toLowerCase().includes('expired') || 
+          data.detail.toLowerCase().includes('invalid token')))) {
+      // Dispatch custom event to trigger logout
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+      }
+      throw new Error('Session expired. Please log in again.');
     }
     throw new Error(data?.detail || data?.message || `API Error: ${response.status}`);
   }

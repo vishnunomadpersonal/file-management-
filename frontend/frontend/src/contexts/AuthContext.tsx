@@ -204,6 +204,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadSession();
   }, []);
 
+  // Listen for session expired events (from API calls)
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      console.log('Session expired, logging out...');
+      // Clear tokens
+      localStorage.removeItem('filevault_access_token');
+      localStorage.removeItem('filevault_refresh_token');
+      localStorage.removeItem('filevault_session');
+      // Update state
+      setState({
+        user: null,
+        currentOrg: null,
+        organizations: [],
+        isAuthenticated: false,
+        isLoading: false,
+      });
+      // Redirect to login
+      window.location.href = '/';
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
+  }, []);
+
   const loadUsersAndOrgs = async () => {
     let usersData: ReturnType<typeof apiUserToUser>[] = [];
     let orgsData: Organization[] = [];

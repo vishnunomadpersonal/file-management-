@@ -250,8 +250,17 @@ def get_accessible_pages(user_context: UserContext) -> List[Dict[str, str]]:
         "/dashboard/all-files": "All Platform Files",
         "/dashboard/users": "User Management",
         "/dashboard/settings": "Account Settings",
-        "/dashboard/approvals": "File Approvals",
-        "/dashboard/organizations": "Organization Management"
+        "/dashboard/approvals": "Pending Approvals",
+        "/dashboard/organizations": "Organization Management",
+        "/dashboard/quarantine": "Quarantined Files",
+        "/dashboard/team": "Team Members",
+        "/dashboard/analytics": "Analytics & Reports",
+        "/dashboard/api-keys": "API Keys",
+        "/dashboard/infrastructure": "Infrastructure Status",
+        "/dashboard/system-logs": "System Logs (Debugging)",
+        "/dashboard/database": "Database Management",
+        "/dashboard/api-gateway": "API Gateway",
+        "/dashboard/security": "Security Settings"
     }
     
     accessible = []

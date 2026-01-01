@@ -15,10 +15,11 @@ from . import feedback
 from . import keycloak_auth
 from . import keycloak_users
 from . import organizations
+from . import chatbot
 
 __all__ = [
     "file",
-    "appointment", 
+    "appointment",
     "user",
     "pipeline",
     "auth",
@@ -27,5 +28,6 @@ __all__ = [
     "feedback",
     "keycloak_auth",
     "keycloak_users",
-    "organizations"
+    "organizations",
+    "chatbot"
 ]

@@ -98,6 +98,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
   
   if (!response.ok) {
+    // Handle token expiration - trigger logout
+    if (response.status === 401 || 
+        (data?.detail && typeof data.detail === 'string' && 
+         (data.detail.toLowerCase().includes('expired') || 
+          data.detail.toLowerCase().includes('invalid token')))) {
+      // Dispatch custom event to trigger logout
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+      }
+      throw new Error('Session expired. Please log in again.');
+    }
     // Handle FastAPI validation errors (422)
     if (response.status === 422 && data?.detail) {
       if (Array.isArray(data.detail)) {
