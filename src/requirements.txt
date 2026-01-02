@@ -50,3 +50,9 @@ langchain-community==0.3.14
 # Embedding model for hybrid intent classification (all-MiniLM-L6-v2)
 # Using newer version compatible with huggingface_hub
 sentence-transformers==3.0.1
+
+# Docker SDK for Infrastructure Monitoring
+# Note: Requires compatible urllib3/requests for Windows Docker named pipe support
+docker==7.0.0
+urllib3<2.0.0
+requests<2.32.0
