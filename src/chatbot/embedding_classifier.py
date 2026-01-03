@@ -696,6 +696,193 @@ TOOL_DESCRIPTIONS = {
         "how many tenants",
         "tenant count",
     ],
+    
+    # =========================================================================
+    # COMPLEX / MULTI-CONDITION QUERIES (NEW - avoid LLM fallback)
+    # =========================================================================
+    
+    # Approved users
+    "approved_users": [
+        "approved users",
+        "users who are approved",
+        "show approved users",
+        "list approved users",
+        "who is approved",
+        "accepted users",
+        "users with approval",
+        "verified users",
+    ],
+    
+    # Pending users
+    "pending_users": [
+        "pending users",
+        "users pending approval",
+        "show pending users",
+        "list pending users",
+        "awaiting approval",
+        "users waiting for approval",
+        "unapproved users",
+    ],
+    
+    # Users without files
+    "users_without_files": [
+        "users without files",
+        "users who never uploaded",
+        "users with no files",
+        "who hasn't uploaded",
+        "users without uploads",
+        "users who haven't uploaded anything",
+        "inactive uploaders",
+        "users with zero files",
+    ],
+    
+    # Users never logged in
+    "users_never_logged_in": [
+        "users who never logged in",
+        "users with no login",
+        "who never logged in",
+        "users without login",
+        "inactive users",
+        "users who haven't logged in",
+        "dormant users",
+    ],
+    
+    # Admin users
+    "admin_users": [
+        "admin users",
+        "all admins",
+        "list admins",
+        "show admins",
+        "administrator list",
+        "super admins",
+        "org admins",
+        "admin accounts",
+    ],
+    
+    # Approvers summary
+    "approvers_summary": [
+        "who approved users",
+        "approval summary",
+        "who approved each user",
+        "approvers",
+        "approval tracking",
+        "who did the approvals",
+    ],
+    
+    # Users with more than N files
+    "users_with_more_than_n_files": [
+        "users with more than 5 files",
+        "users who uploaded more than 10 files",
+        "who has more than 3 files",
+        "users with many files",
+        "prolific uploaders",
+        "users over file limit",
+    ],
+    
+    # Organizations without files
+    "orgs_without_files": [
+        "organizations without files",
+        "orgs with no files",
+        "empty organizations",
+        "organizations with zero files",
+        "orgs without uploads",
+    ],
+    
+    # Approved users without files
+    "approved_users_without_files": [
+        "approved users without files",
+        "approved but never uploaded",
+        "approved users with no files",
+        "users approved but inactive",
+    ],
+    
+    # PDF files
+    "pdf_files": [
+        "pdf files",
+        "list pdf files",
+        "show pdfs",
+        "pdf documents",
+        "all pdfs",
+    ],
+    
+    # Image files
+    "image_files": [
+        "image files",
+        "list images",
+        "show images",
+        "photos",
+        "pictures",
+        "all images",
+    ],
+    
+    # Average file size
+    "average_file_size": [
+        "average file size",
+        "avg file size",
+        "mean file size",
+        "typical file size",
+    ],
+    
+    # Files not quarantined
+    "files_not_quarantined": [
+        "clean files",
+        "files not quarantined",
+        "safe files",
+        "files that passed scan",
+        "non-quarantined files",
+    ],
+    
+    # Empty folders
+    "empty_folders": [
+        "empty folders",
+        "folders with no files",
+        "folders without files",
+        "unused folders",
+    ],
+    
+    # Active vs inactive users
+    "active_vs_inactive_users": [
+        "active vs inactive users",
+        "active inactive breakdown",
+        "percentage of active users",
+        "user activity ratio",
+    ],
+    
+    # Monthly upload trend
+    "monthly_upload_trend": [
+        "monthly upload trend",
+        "uploads by month",
+        "files per month",
+        "monthly upload statistics",
+        "upload trend over months",
+    ],
+    
+    # Monthly signup trend
+    "monthly_signup_trend": [
+        "monthly signup trend",
+        "signups by month",
+        "users per month",
+        "monthly registration stats",
+        "signup trend over months",
+    ],
+    
+    # User list
+    "user_list": [
+        "list all users",
+        "show all users",
+        "all users",
+        "user directory",
+        "complete user list",
+    ],
+    
+    # File list
+    "file_list": [
+        "list all files",
+        "show all files",
+        "all files",
+        "file directory",
+        "complete file list",
+    ],
 }
 
 

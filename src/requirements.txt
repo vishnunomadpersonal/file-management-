@@ -47,6 +47,14 @@ openai==1.35.0  # OpenAI API client (optional - only if using OpenAI)
 langchain==0.3.14
 langchain-community==0.3.14
 
+# DSPy - Automatic Prompt Optimizer (Stanford NLP)
+# Discovers optimal prompts through training examples
+dspy-ai==2.5.43
+cachetools>=5.0.0  # Required by DSPy
+cloudpickle>=3.0.0  # Required by DSPy
+asyncer>=0.0.8  # Required by DSPy
+structlog>=24.0.0  # Required by DSPy
+
 # Embedding model for hybrid intent classification (all-MiniLM-L6-v2)
 # Using newer version compatible with huggingface_hub
 sentence-transformers==3.0.1

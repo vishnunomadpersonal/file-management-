@@ -264,6 +264,161 @@ async def health_check():
     return HealthResponse(**health)
 
 
+# ============================================================================
+# DSPy PROMPT OPTIMIZER ENDPOINTS
+# ============================================================================
+
+@router.get("/dspy/status")
+async def get_dspy_status(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get DSPy prompt optimizer status.
+    
+    Shows whether DSPy is available, if it's optimized, and training data count.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can view DSPy status"
+        )
+    
+    try:
+        from chatbot.hybrid_sql_agent import get_hybrid_sql_agent, HYBRID_SQL_AVAILABLE
+        from chatbot.dspy_optimizer import DSPY_AVAILABLE, TRAINING_EXAMPLES
+        
+        if not DSPY_AVAILABLE:
+            return {
+                "available": False,
+                "message": "DSPy not installed. Run: pip install dspy-ai"
+            }
+        
+        if not HYBRID_SQL_AVAILABLE:
+            return {
+                "available": True,
+                "hybrid_enabled": False,
+                "message": "Hybrid SQL Agent not loaded"
+            }
+        
+        agent = get_hybrid_sql_agent()
+        status = agent.get_status()
+        
+        return {
+            "available": True,
+            "hybrid_enabled": True,
+            "use_dspy": status["use_dspy"],
+            "is_optimized": status["dspy_optimized"],
+            "training_examples": len(TRAINING_EXAMPLES),
+            "langchain_model": status["langchain_model"],
+            "message": "DSPy optimizer ready" if status["dspy_optimized"] else "DSPy not yet optimized. Call POST /api/v1/chat/dspy/optimize to train."
+        }
+        
+    except Exception as e:
+        logger.error(f"DSPy status error: {e}", exc_info=True)
+        return {
+            "available": False,
+            "error": str(e)
+        }
+
+
+@router.post("/dspy/optimize")
+async def optimize_dspy(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Run DSPy optimization to improve SQL generation.
+    
+    This analyzes training examples and discovers optimal prompt patterns.
+    May take 30-60 seconds. Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can optimize DSPy"
+        )
+    
+    try:
+        from chatbot.hybrid_sql_agent import get_hybrid_sql_agent, HYBRID_SQL_AVAILABLE
+        
+        if not HYBRID_SQL_AVAILABLE:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid SQL Agent not available"
+            )
+        
+        agent = get_hybrid_sql_agent()
+        result = agent.optimize_dspy()
+        
+        return {
+            "success": result.get("success", False),
+            "is_optimized": result.get("is_optimized", False),
+            "validation_accuracy": result.get("validation_accuracy"),
+            "training_examples": result.get("training_examples"),
+            "validation_examples": result.get("validation_examples"),
+            "error": result.get("error"),
+            "message": "Optimization complete!" if result.get("success") else f"Optimization failed: {result.get('error')}"
+        }
+        
+    except Exception as e:
+        logger.error(f"DSPy optimization error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+class TrainingExampleRequest(BaseModel):
+    """Request to add a training example."""
+    question: str = Field(..., min_length=5, description="Natural language question")
+    sql: str = Field(..., min_length=10, description="Correct SQL query")
+
+
+@router.post("/dspy/training")
+async def add_training_example(
+    request: TrainingExampleRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Add a new training example for DSPy.
+    
+    Use this when a query produces wrong results and you want to teach
+    the correct SQL. Re-run optimization after adding examples.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can add training examples"
+        )
+    
+    try:
+        from chatbot.hybrid_sql_agent import get_hybrid_sql_agent, HYBRID_SQL_AVAILABLE
+        from chatbot.dspy_optimizer import TRAINING_EXAMPLES
+        
+        if not HYBRID_SQL_AVAILABLE:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Hybrid SQL Agent not available"
+            )
+        
+        agent = get_hybrid_sql_agent()
+        agent.add_training_example(request.question, request.sql)
+        
+        return {
+            "success": True,
+            "message": f"Training example added. Total examples: {len(TRAINING_EXAMPLES)}",
+            "note": "Run POST /api/v1/chat/dspy/optimize to apply new examples"
+        }
+        
+    except Exception as e:
+        logger.error(f"Add training example error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
 @router.delete("/session/{session_id}")
 async def end_session(
     session_id: str,

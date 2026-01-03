@@ -211,6 +211,392 @@ INTENT_PATTERNS: List[Tuple[str, str, float, Dict]] = [
     # My recent uploads
     (r"my.*(recent|latest).*upload", "my_recent_uploads", 0.95, {}),
     (r"what.*did.*(i|I).*upload", "my_recent_uploads", 0.90, {}),
+    
+    # =========================================================================
+    # COMPLEX / MULTI-CONDITION PATTERNS (NEW)
+    # =========================================================================
+    
+    # Users with N files
+    (r"users?.*(more than|over|greater than|>\s*)\s*\d+\s*files?", "users_with_more_than_n_files", 0.95, {}),
+    (r"who.*(uploaded|has|have).*more than\s*\d+", "users_with_more_than_n_files", 0.95, {}),
+    (r"users?.*with.*at least\s*\d+\s*files?", "users_with_more_than_n_files", 0.90, {}),
+    
+    # Range file queries
+    (r"users?.*between\s*\d+\s*and\s*\d+\s*files?", "users_with_range_files", 0.95, {}),
+    (r"users?.*\d+\s*to\s*\d+\s*files?", "users_with_range_files", 0.90, {}),
+    
+    # Approved users patterns
+    (r"(approved|accepted).*users?", "approved_users", 0.90, {}),
+    (r"users?.*approved", "approved_users", 0.85, {}),
+    (r"who.*approved", "approved_users", 0.80, {}),
+    
+    # Pending users patterns
+    (r"(pending|waiting).*users?", "pending_users", 0.90, {}),
+    (r"users?.*pending", "pending_users", 0.85, {}),
+    (r"users?.*await", "pending_users", 0.85, {}),
+    
+    # Users without files
+    (r"users?.*without.*files?", "users_without_files", 0.95, {}),
+    (r"users?.*(haven.t|have not|never).*upload", "users_without_files", 0.95, {}),
+    (r"who.*never.*upload", "users_without_files", 0.90, {}),
+    (r"users?.*no.*files?", "users_without_files", 0.85, {}),
+    
+    # Users never logged in
+    (r"users?.*(never|not).*log", "users_never_logged_in", 0.95, {}),
+    (r"never.*logged.*in", "users_never_logged_in", 0.90, {}),
+    (r"users?.*without.*login", "users_never_logged_in", 0.85, {}),
+    
+    # Admin users
+    (r"(admin|administrator)s?\s*(list|users?)?$", "admin_users", 0.95, {}),
+    (r"(all|show|list).*admins?", "admin_users", 0.95, {}),
+    (r"super.*admins?", "admin_users", 0.90, {}),
+    (r"org.*admins?", "admin_users", 0.90, {}),
+    
+    # Approvers summary
+    (r"who.*approved.*user", "approvers_summary", 0.95, {}),
+    (r"approval.*summary", "approvers_summary", 0.90, {}),
+    (r"approvers?", "approvers_summary", 0.85, {}),
+    
+    # Organizations with N users
+    (r"org.*(more than|over|>\s*)\s*\d+\s*users?", "orgs_with_min_users", 0.95, {}),
+    (r"org.*with.*at least\s*\d+\s*users?", "orgs_with_min_users", 0.90, {}),
+    
+    # Organizations without files
+    (r"org.*(no|without|empty).*files?", "orgs_without_files", 0.95, {}),
+    (r"empty.*org", "orgs_without_files", 0.90, {}),
+    (r"org.*no.*files?", "orgs_without_files", 0.85, {}),
+    
+    # Approved users without files
+    (r"approved.*without.*files?", "approved_users_without_files", 0.95, {}),
+    (r"approved.*(never|no).*upload", "approved_users_without_files", 0.95, {}),
+    
+    # Users in specific org
+    (r"users?.*in.*(org|organization)", "users_in_org", 0.85, {}),
+    
+    # Files in specific org
+    (r"files?.*in.*(org|organization)", "files_in_org", 0.85, {}),
+    
+    # File type filters
+    (r"pdf\s*files?", "pdf_files", 0.95, {}),
+    (r"files?.*pdf", "pdf_files", 0.90, {}),
+    (r"image\s*files?", "image_files", 0.95, {}),
+    (r"files?.*image", "image_files", 0.90, {}),
+    (r"(picture|photo)s?\s*files?", "image_files", 0.90, {}),
+    
+    # Average file size
+    (r"average.*file.*size", "average_file_size", 0.95, {}),
+    (r"avg.*file.*size", "average_file_size", 0.95, {}),
+    (r"mean.*file.*size", "average_file_size", 0.90, {}),
+    
+    # Files not quarantined
+    (r"files?.*(not|clean|safe).*quarantin", "files_not_quarantined", 0.95, {}),
+    (r"clean.*files?", "files_not_quarantined", 0.85, {}),
+    (r"safe.*files?", "files_not_quarantined", 0.85, {}),
+    
+    # Empty folders
+    (r"empty.*folders?", "empty_folders", 0.95, {}),
+    (r"folders?.*no.*files?", "empty_folders", 0.95, {}),
+    (r"folders?.*without.*files?", "empty_folders", 0.95, {}),
+    
+    # Active vs inactive
+    (r"active.*vs.*inactive", "active_vs_inactive_users", 0.95, {}),
+    (r"active.*inactive.*users?", "active_vs_inactive_users", 0.90, {}),
+    (r"(percentage|ratio).*active", "active_vs_inactive_users", 0.85, {}),
+    
+    # Monthly trends
+    (r"monthly.*upload.*trend", "monthly_upload_trend", 0.95, {}),
+    (r"upload.*by.*month", "monthly_upload_trend", 0.90, {}),
+    (r"files?.*grouped.*month", "monthly_upload_trend", 0.90, {}),
+    (r"monthly.*signup.*trend", "monthly_signup_trend", 0.95, {}),
+    (r"signup.*by.*month", "monthly_signup_trend", 0.90, {}),
+    (r"users?.*by.*month", "monthly_signup_trend", 0.85, {}),
+    
+    # User list
+    (r"^list\s*(all)?\s*users?$", "user_list", 0.95, {}),
+    (r"^show\s*(all)?\s*users?$", "user_list", 0.95, {}),
+    (r"^all\s*users?$", "user_list", 0.90, {}),
+    
+    # File list  
+    (r"^list\s*(all)?\s*files?$", "file_list", 0.95, {}),
+    (r"^show\s*(all)?\s*files?$", "file_list", 0.95, {}),
+    (r"^all\s*files?$", "file_list", 0.90, {}),
+    
+    # =========================================================================
+    # EXPANDED PATTERNS v4.0 - COMPREHENSIVE COVERAGE
+    # =========================================================================
+    
+    # ----- SMALLEST FILES -----
+    (r"(smallest|tiniest|lightest).*files?", "smallest_files", 0.95, {}),
+    (r"files?.*(small|tiny|light)", "smallest_files", 0.85, {}),
+    (r"bottom.*files?.*size", "smallest_files", 0.90, {}),
+    
+    # ----- SIZE COMPARISON FILES -----
+    (r"files?.*(larger|bigger|greater|more) than\s*\d+", "files_larger_than", 0.95, {}),
+    (r"files?.*(over|above)\s*\d+", "files_larger_than", 0.90, {}),
+    (r"files?.*(smaller|less) than\s*\d+", "files_smaller_than", 0.95, {}),
+    (r"files?.*(under|below)\s*\d+", "files_smaller_than", 0.90, {}),
+    
+    # ----- VIDEO FILES -----
+    (r"video\s*files?", "video_files", 0.95, {}),
+    (r"files?.*video", "video_files", 0.90, {}),
+    (r"(movie|mp4|avi|mkv)\s*files?", "video_files", 0.90, {}),
+    
+    # ----- AUDIO FILES -----
+    (r"audio\s*files?", "audio_files", 0.95, {}),
+    (r"files?.*audio", "audio_files", 0.90, {}),
+    (r"(music|mp3|wav|sound)\s*files?", "audio_files", 0.90, {}),
+    
+    # ----- DOCUMENT FILES -----
+    (r"document\s*files?", "document_files", 0.95, {}),
+    (r"(doc|docx|word)\s*files?", "document_files", 0.95, {}),
+    (r"(txt|text)\s*files?", "document_files", 0.90, {}),
+    (r"word.*documents?", "document_files", 0.90, {}),
+    
+    # ----- SPREADSHEET FILES -----
+    (r"spreadsheet\s*files?", "spreadsheet_files", 0.95, {}),
+    (r"(xls|xlsx|excel)\s*files?", "spreadsheet_files", 0.95, {}),
+    (r"csv\s*files?", "spreadsheet_files", 0.90, {}),
+    (r"excel.*files?", "spreadsheet_files", 0.90, {}),
+    
+    # ----- ARCHIVE FILES -----
+    (r"archive\s*files?", "archive_files", 0.95, {}),
+    (r"(zip|rar|compressed)\s*files?", "archive_files", 0.95, {}),
+    (r"files?.*compressed", "archive_files", 0.85, {}),
+    
+    # ----- USER STATUS -----
+    (r"rejected.*users?", "rejected_users", 0.95, {}),
+    (r"users?.*rejected", "rejected_users", 0.90, {}),
+    
+    (r"suspended.*users?", "suspended_users", 0.95, {}),
+    (r"deactivated.*users?", "suspended_users", 0.95, {}),
+    (r"inactive.*users?", "suspended_users", 0.90, {}),
+    (r"disabled.*users?", "suspended_users", 0.90, {}),
+    
+    (r"active.*users?$", "active_users", 0.90, {}),
+    (r"users?.*currently.*active", "active_users", 0.90, {}),
+    
+    # ----- TIME-BASED USERS -----
+    (r"users?.*created.*today", "users_created_today", 0.95, {}),
+    (r"users?.*signed.*up.*today", "users_created_today", 0.95, {}),
+    (r"new.*users?.*today", "users_created_today", 0.90, {}),
+    (r"today.*(new|signups?)", "users_created_today", 0.85, {}),
+    
+    (r"users?.*created.*this.*week", "users_created_this_week", 0.95, {}),
+    (r"users?.*signed.*up.*this.*week", "users_created_this_week", 0.95, {}),
+    (r"new.*users?.*this.*week", "users_created_this_week", 0.90, {}),
+    
+    (r"users?.*created.*this.*month", "users_created_this_month", 0.95, {}),
+    (r"users?.*signed.*up.*this.*month", "users_created_this_month", 0.95, {}),
+    (r"new.*users?.*this.*month", "users_created_this_month", 0.90, {}),
+    
+    (r"(oldest|first).*users?", "oldest_users", 0.95, {}),
+    (r"users?.*sign.*up.*first", "oldest_users", 0.90, {}),
+    (r"earliest.*users?", "oldest_users", 0.90, {}),
+    
+    # ----- TIME-BASED FILES -----
+    (r"files?.*upload.*today", "files_uploaded_today", 0.95, {}),
+    (r"today.*upload", "files_uploaded_today", 0.90, {}),
+    (r"files?.*today", "files_uploaded_today", 0.85, {}),
+    
+    (r"files?.*upload.*this.*week", "files_uploaded_this_week", 0.95, {}),
+    (r"this.*week.*upload", "files_uploaded_this_week", 0.90, {}),
+    
+    (r"files?.*upload.*this.*month", "files_uploaded_this_month", 0.95, {}),
+    (r"this.*month.*upload", "files_uploaded_this_month", 0.90, {}),
+    
+    (r"(oldest|first).*files?", "oldest_files", 0.95, {}),
+    (r"files?.*upload.*first", "oldest_files", 0.90, {}),
+    (r"earliest.*files?", "oldest_files", 0.90, {}),
+    
+    # ----- LOGIN/ACTIVITY -----
+    (r"recently.*logged.*in", "recently_logged_in_users", 0.95, {}),
+    (r"users?.*logged.*in.*recent", "recently_logged_in_users", 0.95, {}),
+    (r"recent.*login", "recently_logged_in_users", 0.90, {}),
+    (r"last.*login", "recently_logged_in_users", 0.85, {}),
+    
+    (r"dormant.*users?", "dormant_users", 0.95, {}),
+    (r"users?.*not.*logged.*in", "dormant_users", 0.90, {}),
+    (r"users?.*inactive.*30.*day", "dormant_users", 0.90, {}),
+    (r"stale.*users?", "dormant_users", 0.85, {}),
+    
+    (r"users?.*logged.*in.*today", "users_logged_in_today", 0.95, {}),
+    (r"who.*logged.*in.*today", "users_logged_in_today", 0.95, {}),
+    (r"today.*login", "users_logged_in_today", 0.90, {}),
+    
+    # ----- STORAGE -----
+    (r"users?.*(most|highest).*storage", "users_with_most_storage", 0.95, {}),
+    (r"who.*using.*most.*storage", "users_with_most_storage", 0.95, {}),
+    (r"top.*storage.*users?", "users_with_most_storage", 0.90, {}),
+    (r"storage.*hogs?", "users_with_most_storage", 0.85, {}),
+    
+    (r"users?.*(least|lowest).*storage", "users_with_least_storage", 0.95, {}),
+    (r"who.*using.*least.*storage", "users_with_least_storage", 0.95, {}),
+    
+    (r"storage.*by.*file.*type", "storage_by_file_type", 0.95, {}),
+    (r"storage.*per.*type", "storage_by_file_type", 0.90, {}),
+    (r"(space|disk).*by.*type", "storage_by_file_type", 0.90, {}),
+    
+    # ----- VIRUS/SECURITY -----
+    (r"files?.*(pending|waiting).*scan", "files_pending_scan", 0.95, {}),
+    (r"files?.*not.*scanned", "files_pending_scan", 0.95, {}),
+    (r"unscanned.*files?", "files_pending_scan", 0.90, {}),
+    
+    (r"virus.*detected.*count", "virus_detected_count", 0.95, {}),
+    (r"how many.*(virus|infected)", "virus_detected_count", 0.90, {}),
+    (r"infected.*count", "virus_detected_count", 0.90, {}),
+    
+    (r"infected.*files?", "infected_files", 0.95, {}),
+    (r"files?.*virus", "infected_files", 0.90, {}),
+    (r"malware.*files?", "infected_files", 0.90, {}),
+    
+    (r"clean.*files?", "clean_files", 0.90, {}),
+    (r"safe.*files?", "clean_files", 0.85, {}),
+    (r"files?.*passed.*scan", "clean_files", 0.90, {}),
+    
+    # ----- STATISTICS/AVERAGES -----
+    (r"average.*files?.*per.*user", "average_files_per_user", 0.95, {}),
+    (r"files?.*per.*user.*average", "average_files_per_user", 0.90, {}),
+    (r"avg.*files?.*per.*user", "average_files_per_user", 0.95, {}),
+    
+    (r"average.*storage.*per.*user", "average_storage_per_user", 0.95, {}),
+    (r"storage.*per.*user.*average", "average_storage_per_user", 0.90, {}),
+    (r"avg.*storage.*per.*user", "average_storage_per_user", 0.95, {}),
+    
+    (r"files?.*per.*folder", "files_per_folder", 0.95, {}),
+    (r"folder.*file.*count", "files_per_folder", 0.90, {}),
+    
+    (r"folders?.*most.*files?", "folders_with_most_files", 0.95, {}),
+    (r"(biggest|largest).*folders?", "folders_with_most_files", 0.90, {}),
+    (r"folders?.*by.*file.*count", "folders_with_most_files", 0.85, {}),
+    
+    # ----- ROLES -----
+    (r"users?.*per.*role", "user_role_count", 0.95, {}),
+    (r"role.*count", "user_role_count", 0.90, {}),
+    (r"role.*distribution", "user_role_count", 0.90, {}),
+    (r"how many.*of each.*role", "user_role_count", 0.85, {}),
+    
+    (r"regular.*users?", "regular_users", 0.95, {}),
+    (r"(non-admin|non admin).*users?", "regular_users", 0.90, {}),
+    (r"normal.*users?", "regular_users", 0.85, {}),
+    
+    (r"super.*admins?", "super_admins", 0.95, {}),
+    (r"superadmins?", "super_admins", 0.90, {}),
+    
+    (r"org.*admins?", "org_admins", 0.95, {}),
+    (r"organization.*admins?", "org_admins", 0.90, {}),
+    
+    # ----- ORGANIZATIONS -----
+    (r"inactive.*org", "inactive_organizations", 0.95, {}),
+    (r"org.*inactive", "inactive_organizations", 0.90, {}),
+    (r"disabled.*org", "inactive_organizations", 0.85, {}),
+    
+    (r"(newest|recent|latest).*org", "newest_organizations", 0.95, {}),
+    (r"org.*recent", "newest_organizations", 0.90, {}),
+    (r"new.*org", "newest_organizations", 0.85, {}),
+    
+    (r"org.*by.*plan", "organizations_by_plan", 0.95, {}),
+    (r"plan.*distribution", "organizations_by_plan", 0.90, {}),
+    
+    (r"users?.*per.*org", "users_per_organization", 0.95, {}),
+    (r"org.*user.*count", "users_per_organization", 0.90, {}),
+    
+    # ----- TRENDS -----
+    (r"weekly.*upload.*trend", "weekly_upload_trend", 0.95, {}),
+    (r"upload.*by.*week", "weekly_upload_trend", 0.90, {}),
+    
+    (r"yearly.*upload.*trend", "yearly_upload_trend", 0.95, {}),
+    (r"upload.*by.*year", "yearly_upload_trend", 0.90, {}),
+    (r"annual.*upload", "yearly_upload_trend", 0.85, {}),
+    
+    (r"weekly.*signup.*trend", "weekly_signup_trend", 0.95, {}),
+    (r"signup.*by.*week", "weekly_signup_trend", 0.90, {}),
+    
+    # ----- COMPARISONS -----
+    (r"uploads?.*vs.*users?", "uploads_vs_users", 0.95, {}),
+    (r"upload.*rate", "uploads_vs_users", 0.90, {}),
+    (r"how many.*users?.*upload", "uploads_vs_users", 0.85, {}),
+    
+    (r"approved.*vs.*pending", "approved_vs_pending", 0.95, {}),
+    (r"pending.*vs.*approved", "approved_vs_pending", 0.95, {}),
+    (r"approval.*status", "approved_vs_pending", 0.85, {}),
+    
+    # ----- SEARCH/LOOKUP -----
+    (r"(find|search|lookup).*user.*email", "user_by_email", 0.95, {}),
+    (r"user.*with.*email", "user_by_email", 0.90, {}),
+    (r"who.*email.*is", "user_by_email", 0.85, {}),
+    
+    (r"(find|search|lookup).*user.*name", "user_by_name", 0.95, {}),
+    (r"user.*named", "user_by_name", 0.90, {}),
+    (r"user.*called", "user_by_name", 0.85, {}),
+    
+    (r"files?.*by.*user", "files_by_user", 0.85, {}),
+    (r"files?.*uploaded.*by", "files_by_user", 0.90, {}),
+    (r"(user|person).*files?", "files_by_user", 0.80, {}),
+    
+    (r"(find|search|lookup).*file.*name", "file_by_name", 0.95, {}),
+    (r"file.*named", "file_by_name", 0.90, {}),
+    (r"file.*called", "file_by_name", 0.85, {}),
+    
+    # ----- COUNTS -----
+    (r"pending.*user.*count", "pending_user_count", 0.95, {}),
+    (r"how many.*pending", "pending_user_count", 0.90, {}),
+    (r"count.*pending.*user", "pending_user_count", 0.90, {}),
+    
+    (r"approved.*user.*count", "approved_user_count", 0.95, {}),
+    (r"how many.*approved", "approved_user_count", 0.90, {}),
+    (r"count.*approved.*user", "approved_user_count", 0.90, {}),
+    
+    (r"admin.*count", "admin_count", 0.95, {}),
+    (r"how many.*admin", "admin_count", 0.90, {}),
+    (r"count.*admin", "admin_count", 0.90, {}),
+    
+    (r"quarantine.*count", "quarantined_file_count", 0.95, {}),
+    (r"how many.*quarantine", "quarantined_file_count", 0.90, {}),
+    
+    (r"clean.*file.*count", "clean_file_count", 0.95, {}),
+    (r"how many.*clean.*file", "clean_file_count", 0.90, {}),
+    
+    # ----- TOP N -----
+    (r"top\s*\d+.*(files?|largest)", "top_n_files_by_size", 0.95, {}),
+    (r"top\s*\d+.*biggest", "top_n_files_by_size", 0.95, {}),
+    
+    (r"bottom\s*\d+.*(files?|smallest)", "bottom_n_files_by_size", 0.95, {}),
+    
+    (r"top\s*\d+.*users?.*storage", "top_n_users_by_storage", 0.95, {}),
+    (r"top\s*\d+.*storage.*users?", "top_n_users_by_storage", 0.90, {}),
+    
+    (r"top\s*\d+.*users?.*files?", "top_n_users_by_files", 0.95, {}),
+    (r"top\s*\d+.*uploaders?", "top_n_users_by_files", 0.90, {}),
+    
+    # ----- TODAY COUNTS -----
+    (r"uploads?.*today.*count", "uploads_today_count", 0.95, {}),
+    (r"how many.*upload.*today", "uploads_today_count", 0.95, {}),
+    (r"files?.*today.*count", "uploads_today_count", 0.90, {}),
+    
+    (r"signups?.*today.*count", "signups_today_count", 0.95, {}),
+    (r"how many.*sign.*up.*today", "signups_today_count", 0.95, {}),
+    (r"new.*users?.*today.*count", "signups_today_count", 0.90, {}),
+    
+    (r"logins?.*today.*count", "logins_today_count", 0.95, {}),
+    (r"how many.*log.*in.*today", "logins_today_count", 0.95, {}),
+    
+    # ----- EXTENSION-BASED -----
+    (r"files?.*by.*extension", "files_by_extension", 0.95, {}),
+    (r"extension.*distribution", "files_by_extension", 0.90, {}),
+    (r"file.*types?.*count", "files_by_extension", 0.85, {}),
+    
+    (r"(most|common).*file.*types?", "most_common_file_types", 0.95, {}),
+    (r"popular.*file.*types?", "most_common_file_types", 0.90, {}),
+    
+    # ----- SUMMARIES -----
+    (r"system.*summary", "system_summary", 0.95, {}),
+    (r"(overall|total).*summary", "system_summary", 0.90, {}),
+    (r"dashboard.*stats?", "system_summary", 0.85, {}),
+    (r"all.*stats?", "system_summary", 0.80, {}),
+    
+    (r"org.*summary", "org_summary", 0.95, {}),
+    (r"organization.*summary", "org_summary", 0.90, {}),
+    (r"my.*org.*stats?", "org_summary", 0.85, {}),
 ]
 
 

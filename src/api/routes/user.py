@@ -5,7 +5,7 @@ from typing import List, Optional
 from infrastructure.db.mysql import mysql
 from repositories.user_repository import UserRepo
 from services.user_service import UserService
-from dto.user_dto import User, UserCreate
+from dto.user_dto import User, UserCreate, UserWithApprover
 from api.responses.response import SuccessResponse, ErrorResponse
 from core.security import get_current_user, AuthenticatedUser, Role
 
@@ -43,6 +43,77 @@ def list_users(
     
     users = query.all()
     return SuccessResponse(data=[User.model_validate(u) for u in users])
+
+
+@router.get("/approved", response_model=SuccessResponse[List[UserWithApprover]])
+def get_approved_users(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(mysql.get_db)
+):
+    """Get all approved users with approver details. Requires admin role."""
+    from entities.user import User as UserEntity
+    from entities.organization import Organization
+    from sqlalchemy.orm import aliased
+    
+    # Only admins can view this
+    if current_user.role not in [Role.SUPER_ADMIN, Role.ORG_ADMIN]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can view approval history"
+        )
+    
+    # Create alias for self-join (approver)
+    Approver = aliased(UserEntity)
+    
+    # Build query with joins
+    query = db.query(
+        UserEntity,
+        Approver.name.label('approver_name'),
+        Approver.email.label('approver_email'),
+        Approver.role.label('approver_role'),
+        Organization.name.label('organization_name')
+    ).outerjoin(
+        Approver, UserEntity.approved_by == Approver.id
+    ).outerjoin(
+        Organization, UserEntity.organization_id == Organization.id
+    ).filter(
+        UserEntity.status == 'approved'
+    )
+    
+    # Org admins can only see their organization's users
+    if current_user.role == Role.ORG_ADMIN:
+        query = query.filter(UserEntity.organization_id == current_user.organization_id)
+    
+    query = query.order_by(UserEntity.approved_at.desc())
+    
+    results = query.all()
+    
+    # Build response
+    users_with_approver = []
+    for row in results:
+        user = row[0]
+        user_dict = {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role,
+            'status': user.status,
+            'is_active': user.is_active,
+            'is_verified': user.is_verified,
+            'organization_id': user.organization_id,
+            'approved_by': user.approved_by,
+            'approved_at': user.approved_at,
+            'created_at': user.created_at,
+            'updated_at': user.updated_at,
+            'approver_name': row.approver_name,
+            'approver_email': row.approver_email,
+            'approver_role': row.approver_role,
+            'organization_name': row.organization_name,
+        }
+        users_with_approver.append(UserWithApprover(**user_dict))
+    
+    return SuccessResponse(data=users_with_approver)
+
 
 @router.patch("/{user_id}/status", response_model=SuccessResponse[User])
 def update_user_status(
@@ -85,6 +156,17 @@ def update_user_status(
             )
     
     user.status = data.status
+    
+    # Track who approved and when
+    if data.status == 'approved':
+        from datetime import datetime
+        user.approved_by = current_user.user_id
+        user.approved_at = datetime.utcnow()
+    elif data.status in ['pending', 'rejected']:
+        # Clear approval info if status is changed to pending/rejected
+        user.approved_by = None
+        user.approved_at = None
+    
     db.commit()
     db.refresh(user)
     

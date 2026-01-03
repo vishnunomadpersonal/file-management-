@@ -12,6 +12,7 @@ services:
     volumes:
       - "./src:/var/www"
       - "./models:/var/www/models"  # Persist ML models
+      - "/var/run/docker.sock:/var/run/docker.sock"  # Docker socket for infrastructure monitoring
     networks:
       - filemanager
     depends_on:

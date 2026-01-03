@@ -196,9 +196,9 @@ class RuleBasedProvider(LLMProvider):
                 re.compile(r'\b(appointment(s)?\s*(stats?|info)?|meeting(s)?|schedule|upcoming|my appointments?)\b', re.IGNORECASE),
                 self._handle_appointment_stats
             ),
-            # System overview (admin)
+            # System overview (admin) - NOTE: "everything" alone without up/running/down
             (
-                re.compile(r'\b(system\s*(overview|status|health|info)|platform\s*(stats?|overview)|everything|full stats?)\b', re.IGNORECASE),
+                re.compile(r'\b(system\s*(overview|status|health|info)|platform\s*(stats?|overview)|full stats?)\b', re.IGNORECASE),
                 self._handle_system_overview
             ),
             # Virus scan stats
@@ -545,9 +545,9 @@ class RuleBasedProvider(LLMProvider):
                 re.compile(r'\b(system logs?|audit logs?|logs?|history|take me to.*logs?)\b', re.IGNORECASE),
                 self._handle_navigate_system_logs
             ),
-            # Navigation - Infrastructure (removed "system" to avoid conflict with system logs)
+            # Navigation - Infrastructure (includes containers, docker, services status)
             (
-                re.compile(r'\b(infrastructure|infra|servers?|take me to.*infrastructure)\b', re.IGNORECASE),
+                re.compile(r'\b(infrastructure|infra|servers?|containers?|docker|services?\s*(status|running|up|down|health)|everything\s*(up|running)|take me to.*infrastructure)\b', re.IGNORECASE),
                 self._handle_navigate_infrastructure
             ),
             # Navigation - Platform Admin

@@ -16,13 +16,16 @@ from typing import List, Dict, Optional
 from datetime import datetime
 import logging
 
-from src.infrastructure.docker_monitor import docker_monitor, DockerMonitor
-from src.core.security import get_current_user
-from src.entities.user import User
+from infrastructure.docker_monitor import docker_monitor, DockerMonitor
+from core.security import get_current_user
+from entities.user import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/infrastructure", tags=["Infrastructure"])
+router = APIRouter(prefix="/api/v1/infrastructure", tags=["Infrastructure"])
+
+# Project name for filtering containers (only show file-management containers)
+PROJECT_NAME = "file-management"
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -55,13 +58,14 @@ async def check_docker_health():
 
 @router.get("/containers", response_model=List[Dict])
 async def list_containers(
-    project: Optional[str] = Query(None, description="Filter by docker-compose project name"),
+    project: Optional[str] = Query(PROJECT_NAME, description="Filter by docker-compose project name"),
     current_user: User = Depends(require_admin)
 ):
     """
     Get all containers with real-time statistics.
     
     Returns CPU, memory, network I/O, and status for each container.
+    By default filters to file-management project containers only.
     """
     try:
         containers = await docker_monitor.get_all_containers_stats(project_filter=project)
@@ -225,9 +229,12 @@ async def get_infrastructure_summary(
     
     Combines containers, system stats, and I/O metrics.
     Use this for the dashboard overview.
+    
+    Requires admin authentication.
     """
     try:
-        containers = await docker_monitor.get_all_containers_stats()
+        # Filter to only show file-management project containers
+        containers = await docker_monitor.get_all_containers_stats(project_filter=PROJECT_NAME)
         system = await docker_monitor.get_system_stats()
         
         # Group containers by status

@@ -26,10 +26,18 @@ You have access to a MySQL database with the following tables:
 - name (VARCHAR 255) - User's full name
 - email (VARCHAR 255, UNIQUE) - User's email address
 - role (VARCHAR 50) - Role: 'super_admin', 'org_admin', 'manager', 'user', 'viewer'
-- status (VARCHAR 50) - Status: 'pending', 'approved', 'rejected', 'active'
+- status (VARCHAR 50) - Status: 'pending', 'approved', 'rejected', 'suspended'
 - organization_id (VARCHAR 36, FK -> organizations.id) - User's organization
+- is_active (BOOLEAN) - If user is active
+- is_verified (BOOLEAN) - If user email is verified
+- last_login_at (DATETIME) - When user last logged in
+- approved_by (VARCHAR 36, FK -> users.id) - ID of admin who approved this user
+- approved_at (DATETIME) - When user was approved
 - created_at (DATETIME) - When user was created
 - updated_at (DATETIME) - When user was last updated
+
+### Important: To get the approver's name, self-join users table:
+- JOIN users approver ON users.approved_by = approver.id
 
 ### Table: files
 - id (VARCHAR 36, PK) - File's unique ID
@@ -80,7 +88,20 @@ You have access to a MySQL database with the following tables:
 - files.user_id -> users.id (who uploaded)
 - files.organization_id -> organizations.id (which org owns it)
 - users.organization_id -> organizations.id (user's org)
+- users.approved_by -> users.id (self-join to get approver name)
 - folders.organization_id -> organizations.id
+
+### Example: Get users with their approver names
+SELECT u.name, u.email, approver.name as approved_by_name
+FROM users u
+LEFT JOIN users approver ON u.approved_by = approver.id
+
+### Example: Count files per user with HAVING clause
+SELECT u.name, COUNT(f.id) as file_count
+FROM users u
+LEFT JOIN files f ON u.id = f.user_id
+GROUP BY u.id, u.name
+HAVING COUNT(f.id) < 3
 """
 
 # ============================================================================

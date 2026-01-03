@@ -38,6 +38,14 @@ from .embedding_classifier import classify_with_embeddings, hybrid_classify, pre
 # LLM FALLBACK: Text-to-SQL for complex queries (~30s)
 from .text_to_sql_langchain import get_sql_agent, LangChainSQLAgent
 
+# HYBRID DSPy + LangChain: Automatic prompt optimization (optional)
+try:
+    from .hybrid_sql_agent import get_hybrid_sql_agent, HybridSQLAgent
+    HYBRID_SQL_AVAILABLE = True
+except ImportError:
+    HYBRID_SQL_AVAILABLE = False
+    logger.info("Hybrid SQL Agent not available - using pure LangChain")
+
 logger = logging.getLogger(__name__)
 
 
@@ -197,6 +205,11 @@ class ChatbotOrchestrator:
     
     # DATA QUERY patterns - instant data lookups (rule-based handles with real API calls)
     DATA_QUERY_PATTERNS = [
+        # Container/Docker/Infrastructure queries - handle FIRST to avoid SQL routing
+        re.compile(r'\b(containers?|docker|services?)\s*(status|running|up|down|health|check)\b', re.IGNORECASE),
+        re.compile(r'\b(status|health)\s*(of\s+)?(containers?|docker|services?)\b', re.IGNORECASE),
+        re.compile(r'\beverything\s*(up|running|down)\b', re.IGNORECASE),
+        re.compile(r'\b(are\s+)?(all\s+)?(services?|containers?)\s*(up|running|healthy)\b', re.IGNORECASE),
         # File queries
         re.compile(r'\b(recent files?|latest files?|last (uploaded|added)|my recent|new files?)\b', re.IGNORECASE),
         re.compile(r'\b(how many files?|file count|number of files?|total files?)\b', re.IGNORECASE),
@@ -296,6 +309,12 @@ class ChatbotOrchestrator:
         # "Who" questions about users/uploaders
         re.compile(r'\bwho\s+(uploaded|created|owns?|has|made)\b', re.IGNORECASE),
         re.compile(r'\bwho(\'?s|\s+is)\s+(the\s+)?(top|most|biggest|largest)\b', re.IGNORECASE),
+        # Approval queries - "who approved X", "approved by whom", etc.
+        re.compile(r'\bwho\s+approved\b', re.IGNORECASE),
+        re.compile(r'\bapproved\s+by\b', re.IGNORECASE),
+        re.compile(r'\bapproval.*(details?|info|history)\b', re.IGNORECASE),
+        re.compile(r'\bwhen\s+(was|were)\s+.*approved\b', re.IGNORECASE),
+        re.compile(r'\b(get|show|find)\s+(me\s+)?(the\s+)?approv', re.IGNORECASE),
         # "Which" questions
         re.compile(r'\bwhich\s+(user|org|file|folder)s?\s+(have|has|is|are|uploaded|created)\b', re.IGNORECASE),
         # Rankings/Top N
@@ -486,8 +505,86 @@ class ChatbotOrchestrator:
         - Ranking/sorting requests (top N, sorted by, ranked by)
         
         These should go to text_to_sql_llm, not simple templates.
+        
+        EXCEPTION: Simple queries that have pre-built templates should NOT be marked complex.
         """
         message = message.strip().lower()
+        
+        # =====================================================================
+        # EXCEPTION LIST: Simple queries that LOOK complex but have templates
+        # These should NOT be marked as complex - they have fast template SQL
+        # =====================================================================
+        simple_template_patterns = [
+            # Simple ranking queries (no additional filters)
+            r'^(show\s+)?(the\s+)?(largest|biggest)\s+(files?|documents?)(\s+please)?$',
+            r'^(show\s+)?(the\s+)?(smallest|tiniest)\s+(files?|documents?)(\s+please)?$',
+            r'^(what|which)\s+(are\s+)?(the\s+)?(largest|biggest)\s+(files?|documents?)\??$',
+            r'^(what|which)\s+(are\s+)?(the\s+)?(smallest|tiniest)\s+(files?|documents?)\??$',
+            r'^largest\s+files?$',
+            r'^biggest\s+files?$',
+            r'^smallest\s+files?$',
+            # Top N patterns (with specific number)
+            r'^top\s+\d+\s+(largest|biggest|smallest)\s+(files?|documents?)\??$',
+            r'^(show\s+)?(me\s+)?(the\s+)?(top\s+)?\d+\s+(largest|biggest|smallest)\s+(files?|documents?)\??$',
+            r'^(show\s+)?me\s+(the\s+)?(largest|biggest|smallest)\s+(files?|documents?)\??$',
+            # Simple aggregation queries (no filters)
+            r'^(what\s+is\s+)?(the\s+)?average\s+file\s+size\??$',
+            r'^(show\s+)?(the\s+)?average\s+file\s+size(\s+please)?$',
+            r'^avg\s+file\s+size$',
+            r'^file\s+size\s+average$',
+            r'^mean\s+file\s+size$',
+            r'^average\s+files?\s+per\s+user\??$',
+            r'^(avg|average)\s+storage\s+per\s+user\??$',
+            # Top uploaders (no filters)
+            r'^(who\s+are\s+)?(the\s+)?top\s+uploaders?\??$',
+            r'^(show\s+)?(the\s+)?top\s+uploaders?(\s+please)?$',
+            r'^top\s+uploaders?$',
+            # Storage queries (simple)
+            r'^(who\s+)?(uses?|has|is\s+using)\s+(the\s+)?most\s+storage\??$',
+            r'^who\s+is\s+using\s+(the\s+)?most\s+storage\??$',
+            r'^storage\s+(leaders?|champions?|breakdown)\??$',
+            r'^(show\s+)?users?\s+(by|with)\s+(most\s+)?storage$',
+            r'^storage\s+by\s+user\??$',
+            r'^user\s+storage\??$',
+            r'^storage\s+by\s+file\s+type\??$',
+            r'^users?\s+with\s+most\s+storage\??$',
+            r'^users?\s+with\s+least\s+storage\??$',
+            # Monthly/weekly/yearly trends (simple, no date filters)
+            r'^monthly\s+(upload|signup|file)\s+trend\??$',
+            r'^(show\s+)?(the\s+)?monthly\s+(upload|signup)\s+trend(\s+please)?$',
+            r'^weekly\s+(upload|signup)\s+trend\??$',
+            r'^yearly\s+(upload|signup)\s+trend\??$',
+            r'^(upload|signup)\s+by\s+(week|month|year)\??$',
+            # File type queries (single type, no additional filters)
+            r'^(how\s+many\s+)?(pdf|image|video|audio|doc|document)\s+files?\??$',
+            r'^(show\s+)?(all\s+)?(pdf|image|video|audio)\s+files?(\s+please)?$',
+            r'^(list\s+)?(all\s+)?(pdf|image|video|audio)\s+files?$',
+            r'^(pdf|image|video|audio|spreadsheet|archive)\s+files?\??$',
+            # Today/this week/this month queries (simple time filters)
+            r'^files?\s+uploaded?\s+today\??$',
+            r'^users?\s+created?\s+today\??$',
+            r'^uploads?\s+today\??$',
+            r'^today.s?\s+(uploads?|files?)\??$',
+            r'^files?\s+uploaded?\s+this\s+(week|month)\??$',
+            r'^users?\s+created?\s+this\s+(week|month)\??$',
+            # User status queries (simple)
+            r'^super\s*admins?\??$',
+            r'^org\s*admins?\??$',
+            r'^approved\s+vs\.?\s+pending\??$',
+            r'^pending\s+vs\.?\s+approved\??$',
+            # Folder queries (simple)
+            r'^folders?\s+with\s+most\s+files?\??$',
+            r'^(biggest|largest)\s+folders?\??$',
+            r'^files?\s+per\s+folder\??$',
+            # Org queries (simple)
+            r'^users?\s+per\s+(org|organization)\??$',
+            r'^(org|organization)\s+user\s+count\??$',
+        ]
+        
+        for pattern in simple_template_patterns:
+            if re.match(pattern, message):
+                logger.debug(f"Query matches simple template pattern, not complex: {message}")
+                return False  # NOT complex - use template
         
         # Count complexity indicators
         complexity_score = 0
@@ -655,7 +752,7 @@ class ChatbotOrchestrator:
         
         # Second check: Data-related keywords that MIGHT be analytics
         # Let the hybrid classifier (pattern + embedding) decide
-        # EXPANDED for v3.0 - more casual/slang terms
+        # EXPANDED for v4.0 - comprehensive coverage
         data_keywords = [
             # Counting/quantifying
             'count', 'how many', 'total', 'number of', 'list', 'amount',
@@ -663,27 +760,60 @@ class ChatbotOrchestrator:
             # User synonyms - EXPANDED
             'user', 'member', 'account', 'people', 'person', 'ppl',
             'folks', 'guys', 'peeps', 'team', 'staff', 'employee', 'headcount',
+            # User roles
+            'admin', 'administrator', 'super', 'regular', 'approver',
+            # User statuses
+            'approved', 'pending', 'rejected', 'suspended', 'inactive', 'dormant',
             # File/storage synonyms
             'file', 'document', 'doc', 'upload', 'storage', 'space', 'disk',
             'folder', 'directory', 'item', 'items', 'record', 'records', 'data',
             # Time-based
             'recent', 'latest', 'new', 'old', 'today', 'week', 'month', 'fresh',
+            'yesterday', 'this week', 'this month', 'oldest', 'newest',
             # Size-based
             'largest', 'biggest', 'smallest', 'heavy', 'huge', 'big', 'large',
+            'average', 'avg', 'mean', 'median',
             # Ranking
             'top', 'most', 'least', 'active', 'busy', 'leader', 'ranking',
             # Organization
             'organization', 'org', 'company', 'tenant', 'platform', 'system',
             # Security
-            'virus', 'scan', 'quarantine', 'security', 'infected',
+            'virus', 'scan', 'quarantine', 'security', 'infected', 'clean', 'safe',
             # Stats
             'stat', 'analytics', 'report', 'summary', 'overview', 'breakdown',
+            # Comparisons
+            ' vs ', 'versus', 'compare', 'comparison', 'ratio',
+            # Trends
+            'trend', 'growth', 'daily', 'weekly', 'monthly', 'yearly', 'annual',
+            # Login/activity
+            'login', 'logged', 'sign', 'signup', 'activity',
             # Personal queries
             'my file', 'my upload', 'my storage', 'my doc', 'i upload', 'i have'
         ]
         
         for keyword in data_keywords:
             if keyword in message:
+                return True
+        
+        return False
+    
+    def _is_infrastructure_query(self, message: str) -> bool:
+        """
+        Check if the message is asking about infrastructure/containers/docker.
+        These should NEVER go to SQL - they need the infrastructure page.
+        """
+        message_lower = message.lower()
+        
+        # Infrastructure keywords
+        infra_keywords = [
+            'container', 'docker', 'infrastructure', 'infra',
+            'services running', 'services up', 'services down', 'services status',
+            'everything up', 'everything running', 'everything down',
+            'server status', 'server health', 'system health'
+        ]
+        
+        for keyword in infra_keywords:
+            if keyword in message_lower:
                 return True
         
         return False
@@ -812,10 +942,23 @@ class ChatbotOrchestrator:
         # skip templates and go directly to Text-to-SQL LLM
         is_complex = self._is_complex_query(message)
         
+        # PRIORITY 0.5: INFRASTRUCTURE/CONTAINER QUERIES
+        # These should ALWAYS go to rule-based, never to SQL
+        is_infrastructure_query = self._is_infrastructure_query(message)
+        if is_infrastructure_query:
+            routing_method = "rule_based_infrastructure"
+            logger.info(f"[INFRA] Routing to infrastructure handler: {message[:50]}...")
+            response = await self.rule_based.chat(
+                message=message,
+                history=session.history[:-1],
+                user_context=user_context,
+                system_prompt=chatbot_config.system_prompt
+            )
+        
         # PRIORITY 1: ANALYTICS - Fast Template SQL (~50-100ms)
         # Check this FIRST because it's the most common and fastest
         # But SKIP if query is complex (needs LLM-generated SQL)
-        if not is_complex and db and self._should_use_analytics(message):
+        if response is None and not is_complex and db and self._should_use_analytics(message):
             routing_method = "analytics_template_sql"
             logger.info(f"[FAST] Using Analytics Engine for: {message[:50]}...")
             try:
@@ -968,18 +1111,16 @@ class ChatbotOrchestrator:
     
     async def _handle_text_to_sql(self, message: str, user_context: UserContext) -> ChatResponse:
         """
-        Handle complex data queries using LangChain Text-to-SQL Agent.
+        Handle complex data queries using Text-to-SQL.
         
-        This is the FALLBACK path (~30s) - only used when Template SQL
-        can't handle the query.
+        Uses HYBRID approach:
+        1. DSPy for optimized SQL generation (if available)
+        2. LangChain for execution and fallback
         
-        The LLM generates a SQL query based on the natural language question,
-        then we execute it safely and format the results.
+        DSPy learns optimal prompts from training examples,
+        improving accuracy from ~60% to ~90%+ over time.
         """
         try:
-            # Get the SQL Agent (singleton)
-            sql_agent = get_sql_agent()
-            
             # Prepare user context for access control
             user_info = {
                 "user_id": user_context.user_id,
@@ -987,6 +1128,14 @@ class ChatbotOrchestrator:
                 "role": user_context.role,
                 "permissions": user_context.permissions
             }
+            
+            # Use hybrid agent if available, otherwise pure LangChain
+            if HYBRID_SQL_AVAILABLE:
+                sql_agent = get_hybrid_sql_agent()
+                logger.info("Using Hybrid DSPy+LangChain SQL Agent")
+            else:
+                sql_agent = get_sql_agent()
+                logger.info("Using LangChain SQL Agent")
             
             # Ask the question - this generates SQL, executes, and formats response
             result = await sql_agent.ask(
@@ -1004,10 +1153,16 @@ class ChatbotOrchestrator:
                     elif result.get("was_truncated"):
                         response_text += f"\n\n📊 *Showing top {result['row_count']} results (limited for performance).*"
                 
+                # Note if DSPy was used
+                gen_method = result.get("generation_method", "langchain")
+                dspy_optimized = result.get("dspy_optimized", False)
+                
                 return ChatResponse(
                     message=response_text,
                     metadata={
                         "source": "text_to_sql",
+                        "generation_method": gen_method,
+                        "dspy_optimized": dspy_optimized,
                         "row_count": result.get("row_count", 0),
                         "query_generated": True,
                         "sql_query": result.get("query", "")

@@ -211,7 +211,8 @@ You are a MySQL expert. Generate a SQL query to answer the question.
 === DATABASE SCHEMA (USE ONLY THESE EXACT COLUMN NAMES) ===
 
 TABLE: users (alias: u)
-COLUMNS: id, name, email, role, organization_id, is_active, is_verified, status, created_at, updated_at, last_login_at
+COLUMNS: id, name, email, role, organization_id, is_active, is_verified, status, created_at, updated_at, last_login_at, approved_by, approved_at
+NOTE: approved_by is a foreign key to users.id (the admin who approved this user). approved_at is when approval happened.
 
 TABLE: files (alias: f)
 COLUMNS: id, filename, content_type, size, user_id, organization_id, folder_id, virus_scan_status, virus_scan_date, is_quarantined, appointment_id, path, upload_id
@@ -226,6 +227,14 @@ COLUMNS: id, name, parent_id, organization_id, created_by, path, created_at, upd
 TABLE: appointments (alias: a)
 COLUMNS: id, name, date, user_id
 
+=== REQUIRED JOINS ===
+- To get user's organization name: JOIN organizations o ON u.organization_id = o.id
+- To get file's uploader name: JOIN users u ON f.user_id = u.id
+- To get file's organization name: JOIN organizations o ON f.organization_id = o.id
+- To filter users by organization name: JOIN organizations o ON u.organization_id = o.id WHERE o.name LIKE '%orgname%'
+- To filter files by organization name: JOIN organizations o ON f.organization_id = o.id WHERE o.name LIKE '%orgname%'
+- To get who approved a user: LEFT JOIN users approver ON u.approved_by = approver.id (use approver.name for approver name)
+
 === IMPORTANT MAPPINGS ===
 - "upload date" or "uploaded" or "when" → f.virus_scan_date
 - "who uploaded" or "uploader" → JOIN users u ON f.user_id = u.id, then u.name
@@ -235,6 +244,9 @@ COLUMNS: id, name, date, user_id
 - "average file size" → AVG(f.size) for bytes, AVG(f.size)/1024 for KB, AVG(f.size)/1048576 for MB
 - "user join date" or "registered" → u.created_at
 - "appointment date" → a.date
+- "organization name" or "org name" → o.name (MUST JOIN organizations first!)
+- "who approved" or "approved by" → LEFT JOIN users approver ON u.approved_by = approver.id, then approver.name
+- "when approved" or "approval date" → u.approved_at
 
 === ACCESS CONTROL ===
 {access_control}
@@ -254,14 +266,48 @@ COLUMNS: id, name, date, user_id
    Example: SELECT u.name, COUNT(*) as file_count FROM files f JOIN users u ON f.user_id = u.id GROUP BY u.name
 9. SPECIFIC USER FILTERS: Filter by user name using WHERE u.name LIKE '%Name%'
    Example for "files uploaded by Super Admin": SELECT f.filename, ROUND(f.size/1024,2) as size_kb, f.virus_scan_date FROM files f JOIN users u ON f.user_id = u.id WHERE u.name LIKE '%Super Admin%'
-10. COMPARISON FILTERS: Use proper comparison operators
+10. COMPARISON FILTERS with aggregates - USE HAVING not WHERE for COUNT/SUM/AVG:
+    WRONG: WHERE COUNT(*) > 5 (SQL ERROR!)
+    CORRECT: HAVING COUNT(*) > 5
+    CRITICAL: In GROUP BY, include ALL columns from SELECT that are NOT aggregated!
     Example for "users with more than 5 files": SELECT u.name, COUNT(*) as file_count FROM files f JOIN users u ON f.user_id = u.id GROUP BY u.id, u.name HAVING COUNT(*) > 5
+    Example for "users who uploaded less than 3 files with approver info": 
+        SELECT u.name, u.email, u.status, approver.name as approved_by, COUNT(f.id) as file_count 
+        FROM users u 
+        LEFT JOIN files f ON u.id = f.user_id 
+        LEFT JOIN users approver ON u.approved_by = approver.id 
+        GROUP BY u.id, u.name, u.email, u.status, approver.name 
+        HAVING COUNT(f.id) < 3 LIMIT 50
+    Example for "users with less than N files": SELECT u.name, u.email, COUNT(f.id) as file_count FROM users u LEFT JOIN files f ON u.id = f.user_id GROUP BY u.id, u.name, u.email HAVING COUNT(f.id) < N LIMIT 50
+    Example for "organizations with more than 2 users": SELECT o.name, COUNT(u.id) as user_count FROM organizations o LEFT JOIN users u ON u.organization_id = o.id GROUP BY o.id, o.name HAVING COUNT(u.id) > 2
     Example for "files larger than 1MB": SELECT f.filename, ROUND(f.size/1048576,2) as size_mb FROM files f WHERE f.size > 1048576
+    IMPORTANT: For "less than X files" queries, use LEFT JOIN from users to files, NOT files to users!
+    IMPORTANT: If GROUP BY is used, every non-aggregated column in SELECT MUST be in GROUP BY!
 11. AGGREGATIONS: Use AVG(), MIN(), MAX(), SUM() properly
     Example for "average file size": SELECT ROUND(AVG(f.size)/1024, 2) as avg_size_kb FROM files f
     Example for "smallest file": SELECT f.filename, f.size as size_bytes FROM files f ORDER BY f.size ASC LIMIT 1
     Example for "largest file": SELECT f.filename, ROUND(f.size/1048576,2) as size_mb FROM files f ORDER BY f.size DESC LIMIT 1
-12. Output ONLY the SELECT statement
+12. ORGANIZATION QUERIES - ALWAYS JOIN organizations table when filtering by org name:
+    Example for "users in organization vedirobotics": SELECT u.name, u.email, u.role FROM users u JOIN organizations o ON u.organization_id = o.id WHERE o.name LIKE '%vedirobotics%' LIMIT 50
+    Example for "files in organization X": SELECT f.filename, u.name as uploader FROM files f JOIN users u ON f.user_id = u.id JOIN organizations o ON f.organization_id = o.id WHERE o.name LIKE '%X%' LIMIT 50
+    Example for "users per organization": SELECT o.name as org_name, COUNT(u.id) as user_count FROM organizations o LEFT JOIN users u ON u.organization_id = o.id GROUP BY o.id, o.name
+13. NOT EXISTS / NEGATIVE QUERIES - Use LEFT JOIN with IS NULL to find records without matches:
+    Example for "users who have not uploaded any files": SELECT u.name, u.email, o.name as organization FROM users u LEFT JOIN organizations o ON u.organization_id = o.id LEFT JOIN files f ON u.id = f.user_id WHERE f.id IS NULL LIMIT 50
+    Example for "organizations with no users": SELECT o.name FROM organizations o LEFT JOIN users u ON o.id = u.organization_id WHERE u.id IS NULL LIMIT 50
+    Example for "folders with no files": SELECT fo.name FROM folders fo LEFT JOIN files f ON fo.id = f.folder_id WHERE f.id IS NULL LIMIT 50
+14. STATUS QUERIES - The users.status column has values: 'approved', 'pending', 'rejected':
+    Example for "approved users with organization": SELECT u.name, u.email, u.status, o.name as org_name FROM users u LEFT JOIN organizations o ON u.organization_id = o.id WHERE u.status = 'approved' LIMIT 50
+    Example for "non-approved/pending users": SELECT u.name, u.email, u.status, o.name as org_name FROM users u LEFT JOIN organizations o ON u.organization_id = o.id WHERE u.status != 'approved' LIMIT 50
+    Example for "users grouped by status": SELECT u.status, u.name, u.email, o.name as org_name FROM users u LEFT JOIN organizations o ON u.organization_id = o.id ORDER BY u.status, u.name LIMIT 50
+15. APPROVAL TRACKING QUERIES - Use approved_by and approved_at to find who approved users:
+    CRITICAL: When selecting o.name or org_name, you MUST include: LEFT JOIN organizations o ON u.organization_id = o.id
+    Example for "who approved user20@gmail.com": SELECT u.name, u.email, u.role, u.status, approver.name as approved_by, approver.email as approver_email, u.approved_at, o.name as org_name FROM users u LEFT JOIN users approver ON u.approved_by = approver.id LEFT JOIN organizations o ON u.organization_id = o.id WHERE u.email = 'user20@gmail.com' LIMIT 50
+    Example for "who approved each user": SELECT u.name, u.email, approver.name as approved_by, u.approved_at, o.name as org_name FROM users u LEFT JOIN users approver ON u.approved_by = approver.id LEFT JOIN organizations o ON u.organization_id = o.id WHERE u.status = 'approved' LIMIT 50
+    Example for "users approved by a specific admin": SELECT u.name, u.email, u.approved_at FROM users u LEFT JOIN users approver ON u.approved_by = approver.id WHERE approver.name LIKE '%Admin%' LIMIT 50
+    Example for "count of users approved by each admin": SELECT approver.name as approved_by, approver.role, COUNT(u.id) as users_approved FROM users u JOIN users approver ON u.approved_by = approver.id GROUP BY approver.id, approver.name, approver.role LIMIT 50
+16. NEVER use SQL comments (-- or /* */) in your output
+17. Output ONLY a single SELECT statement - no multiple statements, no explanations
+18. CRITICAL: If you use any alias (o, approver, etc.) in SELECT, you MUST JOIN that table in FROM clause
 
 Question: {question}
 

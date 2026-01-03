@@ -31,6 +31,10 @@ class User(db.Base):
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     
+    # Approval tracking
+    approved_by = Column(VARCHAR(36), ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    approved_at = Column(DateTime)
+    
     # OAuth info (for social login)
     oauth_provider = Column(String(50))  # google, github, etc.
     oauth_id = Column(String(255))
@@ -63,3 +67,6 @@ class User(db.Base):
     appointments = relationship("Appointment", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     folders = relationship("Folder", back_populates="creator", foreign_keys="Folder.created_by")
+    
+    # Self-referential relationship for approval tracking
+    approver = relationship("User", remote_side=[id], foreign_keys=[approved_by])

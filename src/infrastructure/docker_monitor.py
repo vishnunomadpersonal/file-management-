@@ -8,15 +8,21 @@ Provides:
 - Container status (running, stopped, health)
 - Container logs
 - System-wide metrics
+- Service health latency checks
+- MySQL connections
+- RabbitMQ queue metrics
 """
 
 import logging
 import asyncio
+import aiohttp
+import time
+import random
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import docker
 from docker.errors import DockerException, NotFound
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 import psutil
 
 logger = logging.getLogger(__name__)
@@ -41,6 +47,11 @@ class ContainerStats:
     uptime: str
     ports: List[str]
     created_at: str
+    # Extended metrics
+    latency_ms: Optional[float] = None
+    requests_per_min: Optional[int] = None  # Dummy data for now
+    connections: Optional[int] = None  # For MySQL
+    queue_size: Optional[int] = None  # For RabbitMQ
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -85,6 +96,27 @@ class DockerMonitor:
         'clamav': {'display': 'ClamAV Scanner', 'icon': '🛡️', 'color': 'teal'},
         'clamav-rest': {'display': 'ClamAV REST', 'icon': '🔬', 'color': 'teal'},
         'ollama': {'display': 'Ollama LLM', 'icon': '🤖', 'color': 'indigo'},
+    }
+    
+    # Health check endpoints for latency measurement
+    HEALTH_ENDPOINTS = {
+        'filemanager': 'http://localhost:8000/api/v1/pipeline/health',
+        'kong': 'http://localhost:8001/status',
+        'keycloak': 'http://localhost:8080/health/ready',
+        'minio': 'http://localhost:9001/minio/health/live',
+        'rabbitmq': 'http://localhost:15672/api/healthchecks/node',
+        'caddy': 'http://localhost:80',
+        'clamav-rest': 'http://localhost:3310/health',
+    }
+    
+    # Dummy requests/min data (will be replaced with Prometheus later)
+    DUMMY_REQUESTS_PER_MIN = {
+        'filemanager': (3500, 5000),  # Range for random
+        'kong': (4000, 5500),
+        'keycloak': (800, 1500),
+        'minio': (1000, 2000),
+        'caddy': (4500, 6000),
+        'rabbitmq': (500, 1000),
     }
     
     def __init__(self):
@@ -230,7 +262,89 @@ class DockerMonitor:
                 return info
         return {'display': container_name, 'icon': '📦', 'color': 'gray'}
     
-    async def get_container_stats(self, container_id: str) -> Optional[ContainerStats]:
+    def _get_service_key(self, container_name: str) -> Optional[str]:
+        """Get service key from container name."""
+        for key in self.SERVICE_NAMES.keys():
+            if key in container_name.lower():
+                return key
+        return None
+    
+    async def _check_latency(self, container_name: str) -> Optional[float]:
+        """Check service latency by pinging health endpoint."""
+        service_key = self._get_service_key(container_name)
+        if not service_key or service_key not in self.HEALTH_ENDPOINTS:
+            return None
+        
+        url = self.HEALTH_ENDPOINTS[service_key]
+        try:
+            import os
+            start = time.perf_counter()
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # For RabbitMQ, need auth
+                auth = None
+                if 'rabbitmq' in service_key:
+                    user = os.getenv('RABBITMQ_DEFAULT_USER', 'guest')
+                    passwd = os.getenv('RABBITMQ_DEFAULT_PASS', 'guest')
+                    auth = aiohttp.BasicAuth(user, passwd)
+                
+                async with session.get(url, auth=auth, ssl=False) as resp:
+                    await resp.read()
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    return round(latency_ms, 1)
+        except Exception as e:
+            logger.debug(f"Latency check failed for {container_name}: {e}")
+            return None
+    
+    async def _get_mysql_connections(self) -> Optional[int]:
+        """Get MySQL active connections count."""
+        try:
+            import pymysql
+            import os
+            conn = pymysql.connect(
+                host='localhost',
+                port=3307,
+                user=os.getenv('MYSQL_USER', 'filemanager_user'),
+                password=os.getenv('MYSQL_PASSWORD', 'filemanager_pass'),
+                connect_timeout=5
+            )
+            cursor = conn.cursor()
+            cursor.execute("SHOW STATUS LIKE 'Threads_connected'")
+            result = cursor.fetchone()
+            conn.close()
+            return int(result[1]) if result else None
+        except Exception as e:
+            logger.debug(f"MySQL connection check failed: {e}")
+            return None
+    
+    async def _get_rabbitmq_queue_size(self) -> Optional[int]:
+        """Get RabbitMQ total queue message count."""
+        try:
+            import os
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                user = os.getenv('RABBITMQ_DEFAULT_USER', 'guest')
+                passwd = os.getenv('RABBITMQ_DEFAULT_PASS', 'guest')
+                auth = aiohttp.BasicAuth(user, passwd)
+                url = 'http://localhost:15672/api/queues'
+                async with session.get(url, auth=auth) as resp:
+                    if resp.status == 200:
+                        queues = await resp.json()
+                        total_messages = sum(q.get('messages', 0) for q in queues)
+                        return total_messages
+        except Exception as e:
+            logger.debug(f"RabbitMQ queue check failed: {e}")
+            return None
+    
+    def _get_dummy_requests_per_min(self, container_name: str) -> Optional[int]:
+        """Get dummy requests/min value (placeholder for Prometheus)."""
+        service_key = self._get_service_key(container_name)
+        if service_key and service_key in self.DUMMY_REQUESTS_PER_MIN:
+            min_val, max_val = self.DUMMY_REQUESTS_PER_MIN[service_key]
+            return random.randint(min_val, max_val)
+        return None
+    
+    async def get_container_stats(self, container_id: str, include_extended: bool = False) -> Optional[ContainerStats]:
         """Get stats for a single container."""
         try:
             container = self.client.containers.get(container_id)
@@ -249,6 +363,29 @@ class DockerMonitor:
             started_at = state.get('StartedAt', '')
             created_at = container.attrs.get('Created', '')
             
+            # Extended metrics (latency, connections, queue size)
+            latency_ms = None
+            requests_per_min = None
+            connections = None
+            queue_size = None
+            
+            if include_extended and container.status == 'running':
+                service_key = self._get_service_key(container.name)
+                
+                # Get latency for services with health endpoints
+                latency_ms = await self._check_latency(container.name)
+                
+                # Get dummy requests/min
+                requests_per_min = self._get_dummy_requests_per_min(container.name)
+                
+                # Get MySQL connections
+                if service_key == 'mysql':
+                    connections = await self._get_mysql_connections()
+                
+                # Get RabbitMQ queue size
+                if service_key == 'rabbitmq':
+                    queue_size = await self._get_rabbitmq_queue_size()
+            
             return ContainerStats(
                 container_id=container.short_id,
                 container_name=container.name,
@@ -265,7 +402,11 @@ class DockerMonitor:
                 block_write_mb=blk_write,
                 uptime=self._calculate_uptime(started_at),
                 ports=self._get_ports(container),
-                created_at=created_at
+                created_at=created_at,
+                latency_ms=latency_ms,
+                requests_per_min=requests_per_min,
+                connections=connections,
+                queue_size=queue_size
             )
         except NotFound:
             logger.warning(f"Container {container_id} not found")
@@ -274,7 +415,7 @@ class DockerMonitor:
             logger.error(f"Error getting stats for {container_id}: {e}")
             return None
     
-    async def get_all_containers_stats(self, project_filter: str = None) -> List[Dict]:
+    async def get_all_containers_stats(self, project_filter: str = None, include_extended: bool = True) -> List[Dict]:
         """Get stats for all containers, optionally filtered by project name."""
         containers_stats = []
         
@@ -293,8 +434,8 @@ class DockerMonitor:
                 if container.name.startswith('k8s_') or container.name.startswith('vsc-'):
                     continue
                 
-                # Get stats
-                stats = await self.get_container_stats(container.id)
+                # Get stats with extended metrics
+                stats = await self.get_container_stats(container.id, include_extended=include_extended)
                 if stats:
                     stats_dict = stats.to_dict()
                     # Add service display info

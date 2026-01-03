@@ -278,7 +278,25 @@ export const usersApi = {
     const result = await handleResponse<ApiResponse<ApiUser>>(response);
     return result.data!;
   },
+
+  async getApprovedUsers(): Promise<ApprovedUser[]> {
+    const response = await fetch(`${API_BASE}/users/approved`, {
+      headers: { ...getAuthHeaders() },
+      credentials: 'include',
+    });
+    const result = await handleResponse<ApiResponse<ApprovedUser[]>>(response);
+    return result.data || [];
+  },
 };
+
+export interface ApprovedUser extends ApiUser {
+  approved_by: string | null;
+  approved_at: string | null;
+  approver_name: string | null;
+  approver_email: string | null;
+  approver_role: string | null;
+  organization_name: string | null;
+}
 
 // ============================================================================
 // Organizations API (uses /organizations endpoint, not /api/v1/organizations)
