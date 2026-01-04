@@ -2,7 +2,7 @@
 
 ## Overview
 
-The FileVault AI Chatbot is a production-grade, RBAC-aware conversational assistant that helps users navigate the platform, manage files, and get information based on their role and permissions.
+The FileVault AI Chatbot is a production-grade, RBAC-aware conversational assistant that helps users navigate the platform, manage files, and get information based on their role and permissions. It includes advanced Text-to-SQL capabilities with RAG (Retrieval-Augmented Generation) and continuous learning from feedback.
 
 ## Architecture
 
@@ -31,9 +31,13 @@ The FileVault AI Chatbot is a production-grade, RBAC-aware conversational assist
 ├─────────────────────────────────────────────────────────────────┤
 │  API Routes (/api/v1/chat)                                       │
 │  ├── POST / - Send message                                       │
+│  ├── POST /sql - Text-to-SQL conversion                         │
+│  ├── POST /sql/feedback - Submit SQL feedback                   │
+│  ├── POST /sql/feedback/approve - Admin approve feedback        │
+│  ├── GET /auto-learn/stats - Learning statistics                │
+│  ├── GET /rag/search - Search RAG examples                      │
 │  ├── GET /suggestions - Initial suggestions                      │
 │  ├── GET /health - Health check                                  │
-│  ├── DELETE /session/{id} - End session                         │
 │  └── WebSocket /ws - Real-time chat                             │
 │                                                                  │
 │  Chatbot Orchestrator                                            │
@@ -41,9 +45,15 @@ The FileVault AI Chatbot is a production-grade, RBAC-aware conversational assist
 │  ├── Provider selection                                          │
 │  └── RBAC filtering                                              │
 │                                                                  │
+│  Text-to-SQL Engine                                              │
+│  ├── DSPy Optimizer (prompt optimization)                       │
+│  ├── RAG Example Store (semantic retrieval)                     │
+│  └── Auto-Learn Service (feedback loop)                         │
+│                                                                  │
 │  LLM Providers                                                   │
 │  ├── OpenAI Provider (cloud, paid)                              │
 │  ├── Ollama Provider (local, free)                              │
+│  ├── NVIDIA Provider (high-performance)                         │
 │  └── Rule-based Provider (no AI)                                │
 │                                                                  │
 │  Security Layer                                                  │
@@ -52,6 +62,168 @@ The FileVault AI Chatbot is a production-grade, RBAC-aware conversational assist
 │  └── Navigation authorization                                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 🧠 RAG (Retrieval-Augmented Generation) System
+
+### Overview
+
+The RAG system enhances SQL generation accuracy by retrieving semantically similar examples from a vector store and injecting them into the LLM prompt.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    RAG Example Store                             │
+├─────────────────────────────────────────────────────────────────┤
+│  Sentence Transformer (all-MiniLM-L6-v2)                        │
+│  ├── 384-dimensional embeddings                                  │
+│  ├── Cosine similarity search                                    │
+│  └── Thread-safe operations                                      │
+│                                                                  │
+│  Vector Store                                                    │
+│  ├── 144+ base examples                                          │
+│  ├── Feedback examples (continuously growing)                    │
+│  └── Persistent storage (/tmp/rag_example_store)                │
+│                                                                  │
+│  Retrieval Pipeline                                              │
+│  ├── Query embedding                                             │
+│  ├── Top-K similarity search (default K=5)                      │
+│  └── Example injection into DSPy prompt                         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant D as DSPy Optimizer
+    participant R as RAG Store
+    participant L as LLM
+
+    U->>D: "How many users registered today?"
+    D->>R: Embed question
+    R->>R: Semantic search (top-5)
+    R-->>D: Similar examples with SQL
+    D->>L: Prompt + Retrieved Examples
+    L-->>D: Generated SQL
+    D-->>U: SELECT COUNT(*) FROM users WHERE DATE(created_at) = CURDATE()
+```
+
+### Base Examples (Sample)
+
+| Question | SQL |
+|----------|-----|
+| "How many files are there?" | `SELECT COUNT(*) FROM files` |
+| "Show all users" | `SELECT * FROM users` |
+| "Files larger than 10MB" | `SELECT * FROM files WHERE size > 10485760` |
+| "Users who uploaded today" | `SELECT DISTINCT u.* FROM users u JOIN files f ON u.id = f.user_id WHERE DATE(f.created_at) = CURDATE()` |
+
+### API Endpoints
+
+```bash
+# Search for similar examples
+GET /api/v1/chat/rag/search?query=how many users&top_k=5
+
+# Response
+{
+  "query": "how many users",
+  "results": [
+    {
+      "question": "How many users are there?",
+      "sql": "SELECT COUNT(*) as user_count FROM users",
+      "similarity": 0.947
+    },
+    ...
+  ]
+}
+```
+
+---
+
+## 🔄 Auto-Learn Feedback System
+
+### Overview
+
+The Auto-Learn system enables continuous improvement of SQL generation by learning from admin-approved corrections.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Auto-Learn Service                             │
+├─────────────────────────────────────────────────────────────────┤
+│  Feedback Collection                                             │
+│  ├── User submits question + generated SQL + correction         │
+│  ├── Stored as pending feedback                                  │
+│  └── Admin review queue                                          │
+│                                                                  │
+│  Approval Workflow                                               │
+│  ├── Admin reviews pending feedback                              │
+│  ├── Approved → Added to RAG store immediately                  │
+│  ├── Rejected → Discarded                                        │
+│  └── Training triggered when threshold reached                  │
+│                                                                  │
+│  Continuous Learning                                             │
+│  ├── Threshold: 50 approved examples                             │
+│  ├── Cooldown: 24 hours between retrains                        │
+│  └── DSPy prompt re-optimization with new examples              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Feedback Flow
+
+```mermaid
+graph TB
+    A[User Query] --> B[SQL Generated]
+    B --> C{User Happy?}
+    C -->|Yes| D[No Action]
+    C -->|No| E[Submit Correction]
+    E --> F[Pending Queue]
+    F --> G{Admin Review}
+    G -->|Approve| H[Add to RAG Store]
+    G -->|Reject| I[Discard]
+    H --> J{50+ New Examples?}
+    J -->|Yes| K[Trigger Retrain]
+    J -->|No| L[Continue]
+    K --> M[Improved Model]
+```
+
+### API Endpoints
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| POST | `/chat/sql/feedback` | Submit feedback |
+| POST | `/chat/sql/feedback/approve` | Admin approves feedback |
+| GET | `/chat/sql/feedback/pending` | List pending feedback |
+| GET | `/chat/auto-learn/stats` | Learning statistics |
+| POST | `/chat/auto-learn/force-retrain` | Force retrain (admin) |
+
+### Example Usage
+
+```bash
+# 1. Submit feedback
+curl -X POST /api/v1/chat/sql/feedback \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "question": "Show me all PDFs",
+    "generated_sql": "SELECT * FROM files WHERE content_type LIKE '%pdf%'",
+    "corrected_sql": "SELECT * FROM files WHERE content_type = 'application/pdf'"
+  }'
+
+# 2. Admin approves
+curl -X POST /api/v1/chat/sql/feedback/approve \
+  -H "Authorization: Bearer <admin_token>" \
+  -d '{"feedback_id": "abc123"}'
+
+# 3. Check stats
+curl /api/v1/chat/auto-learn/stats
+# Response: {"total_examples": 145, "feedback_examples": 1, "pending_feedback": 0}
+```
+
+---
 
 ## Features
 
