@@ -13,7 +13,34 @@ from dto.folder_dto import FolderCreateDTO, FolderUpdateDTO, FolderMoveDTO, Fold
 from fastapi import HTTPException
 from infrastructure.minio import MinioStorage
 
+# Redis Caching
+try:
+    from infrastructure.redis_cache import redis_cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis_cache = None
+
 logger = logging.getLogger(__name__)
+
+# Cache TTL
+CACHE_TTL_FOLDERS = 300  # 5 minutes
+
+
+def _serialize_folder(folder: Folder) -> dict:
+    """Serialize a Folder entity for caching."""
+    if folder is None:
+        return None
+    return {
+        'id': str(folder.id),
+        'name': folder.name,
+        'path': folder.path,
+        'parent_id': str(folder.parent_id) if folder.parent_id else None,
+        'organization_id': str(folder.organization_id) if folder.organization_id else None,
+        'created_by': str(folder.created_by) if folder.created_by else None,
+        'created_at': folder.created_at.isoformat() if hasattr(folder, 'created_at') and folder.created_at else None,
+        'updated_at': folder.updated_at.isoformat() if hasattr(folder, 'updated_at') and folder.updated_at else None,
+    }
 
 
 class FolderService:
@@ -23,6 +50,19 @@ class FolderService:
         self.db = db
         self.repository = FolderRepository(db)
         self.minio = MinioStorage()
+    
+    def _invalidate_folder_caches(self, organization_id: str = None, folder_id: str = None):
+        """Invalidate folder-related caches."""
+        if not REDIS_AVAILABLE or not redis_cache:
+            return
+        try:
+            if organization_id:
+                redis_cache.delete_pattern(f"folders:org:{organization_id}:*")
+            if folder_id:
+                redis_cache.delete(f"folder:{folder_id}")
+            logger.debug(f"Invalidated folder caches")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate folder caches: {e}")
     
     def _sanitize_folder_name(self, name: str) -> str:
         """Sanitize folder name for use in paths."""
@@ -103,13 +143,38 @@ class FolderService:
         created_folder = self.repository.create(folder)
         logger.info(f"Created folder: {created_folder.id} at path: {path}")
         
+        # Invalidate folder caches
+        self._invalidate_folder_caches(organization_id=organization_id)
+        
         return created_folder
     
     def get_folder(self, folder_id: str, organization_id: str) -> Folder:
-        """Get a folder by ID."""
+        """Get a folder by ID with caching."""
+        cache_key = f"folder:{folder_id}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss
+        logger.debug(f"Cache MISS: {cache_key}")
         folder = self.repository.get_by_id_and_org(folder_id, organization_id)
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                redis_cache.set(cache_key, _serialize_folder(folder), ttl=CACHE_TTL_FOLDERS)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
         return folder
     
     def list_folders(
@@ -118,7 +183,7 @@ class FolderService:
         parent_id: Optional[str] = None
     ) -> List[Folder]:
         """
-        List folders in an organization.
+        List folders in an organization with caching.
         
         Args:
             organization_id: Organization to list folders for
@@ -127,14 +192,63 @@ class FolderService:
         Returns:
             List of folders
         """
+        cache_key = f"folders:org:{organization_id}:parent:{parent_id or 'root'}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss
+        logger.debug(f"Cache MISS: {cache_key}")
+        
         # Ensure org bucket exists
         self._ensure_org_bucket(organization_id)
         
-        return self.repository.list_by_organization(organization_id, parent_id)
+        folders = self.repository.list_by_organization(organization_id, parent_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cache_data = [_serialize_folder(f) for f in folders]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_FOLDERS)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return folders
     
     def get_folder_tree(self, organization_id: str) -> List[Folder]:
-        """Get all folders as a flat list (for building tree on frontend)."""
-        return self.repository.list_all_by_organization(organization_id)
+        """Get all folders as a flat list with caching."""
+        cache_key = f"folders:org:{organization_id}:tree"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss
+        logger.debug(f"Cache MISS: {cache_key}")
+        folders = self.repository.list_all_by_organization(organization_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cache_data = [_serialize_folder(f) for f in folders]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_FOLDERS)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return folders
     
     def update_folder(
         self, 
@@ -178,7 +292,12 @@ class FolderService:
             # Update paths for all descendants
             self.repository.update_children_paths(old_path, new_path, organization_id)
         
-        return self.repository.update(folder)
+        updated = self.repository.update(folder)
+        
+        # Invalidate caches after update
+        self._invalidate_folder_caches(organization_id=organization_id, folder_id=folder_id)
+        
+        return updated
     
     def move_folder(
         self, 
@@ -236,7 +355,12 @@ class FolderService:
         # Update descendant paths
         self.repository.update_children_paths(old_path, new_path, organization_id)
         
-        return self.repository.update(folder)
+        moved = self.repository.update(folder)
+        
+        # Invalidate caches after move
+        self._invalidate_folder_caches(organization_id=organization_id, folder_id=folder_id)
+        
+        return moved
     
     def delete_folder(
         self, 
@@ -282,6 +406,9 @@ class FolderService:
         
         self.repository.delete(folder)
         logger.info(f"Deleted folder: {folder_id}")
+        
+        # Invalidate caches after delete
+        self._invalidate_folder_caches(organization_id=organization_id, folder_id=folder_id)
     
     def get_folder_contents(
         self, 

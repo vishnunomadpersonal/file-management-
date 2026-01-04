@@ -1,6 +1,6 @@
 from repositories.file_repository import FileRepo
 from dto.file_dto import UploadFileDTO, UploadChunkDTO, RetryUploadFileDTO
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from entities.file import File
 import os
 import aiofiles
@@ -23,6 +23,7 @@ import traceback
 from datetime import datetime
 from urllib.parse import quote
 import asyncio
+import json
 
 # Event-Driven Architecture imports
 from events import (
@@ -36,12 +37,75 @@ from events import (
     FileDownloadedEvent,
 )
 
+# Redis Caching
+try:
+    from infrastructure.redis_cache import redis_cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis_cache = None
+
 logger = logging.getLogger(__name__)
 
 # Flag to enable/disable ML pipeline auto-trigger
 ML_PIPELINE_ENABLED = os.environ.get('ML_PIPELINE_ENABLED', 'true').lower() == 'true'
 # Flag to enable event-driven architecture
 EVENT_DRIVEN_ENABLED = os.environ.get('EVENT_DRIVEN_ENABLED', 'true').lower() == 'true'
+
+# Cache TTL configuration (in seconds)
+CACHE_TTL_SHORT = 60       # 1 minute - for frequently changing data
+CACHE_TTL_MEDIUM = 300     # 5 minutes - for file lists
+CACHE_TTL_LONG = 600       # 10 minutes - for less frequently changing data
+
+
+def _serialize_file(file: File) -> dict:
+    """Serialize a File entity for caching."""
+    if file is None:
+        return None
+    return {
+        'id': str(file.id),
+        'upload_id': file.upload_id,
+        'path': file.path,
+        'credential': file.credential,
+        'content_type': file.content_type,
+        'size': file.size,
+        'detail': file.detail,
+        'celery_task_id': file.celery_task_id,
+        'appointment_id': str(file.appointment_id) if file.appointment_id else None,
+        'user_id': str(file.user_id) if file.user_id else None,
+        'filename': file.filename,
+        'virus_scan_status': file.virus_scan_status,
+        'virus_scan_result': file.virus_scan_result,
+        'virus_scan_date': file.virus_scan_date.isoformat() if file.virus_scan_date else None,
+        'is_quarantined': file.is_quarantined,
+        'quarantine_reason': file.quarantine_reason,
+        'organization_id': str(file.organization_id) if file.organization_id else None,
+        'folder_id': str(file.folder_id) if file.folder_id else None,
+        'created_at': file.created_at.isoformat() if hasattr(file, 'created_at') and file.created_at else None,
+        'updated_at': file.updated_at.isoformat() if hasattr(file, 'updated_at') and file.updated_at else None,
+    }
+
+
+def _serialize_file_with_appointment(file_tuple: tuple) -> dict:
+    """Serialize a File with appointment name tuple for caching."""
+    file, appointment_name = file_tuple
+    data = _serialize_file(file)
+    data['_appointment_name'] = appointment_name
+    # Include organization data if loaded
+    if hasattr(file, 'organization') and file.organization:
+        data['_organization'] = {
+            'id': str(file.organization.id),
+            'name': file.organization.name
+        }
+    # Include user data if loaded
+    if hasattr(file, 'user') and file.user:
+        data['_user'] = {
+            'id': str(file.user.id),
+            'name': file.user.name,
+            'email': file.user.email
+        }
+    return data
+
 
 class FileService(BaseService[FileRepo]):
     def __init__(self, repo: FileRepo) -> None:
@@ -234,6 +298,9 @@ class FileService(BaseService[FileRepo]):
             file = self.repo.create_file(file_dto)
             logger.info(f"File record created successfully with ID: {file.id}")
             
+            # Invalidate relevant caches after file creation
+            self._invalidate_file_caches(file)
+            
             # ========================================================
             # EVENT-DRIVEN: Publish file.upload.completed event
             # This triggers all downstream consumers asynchronously:
@@ -335,24 +402,153 @@ class FileService(BaseService[FileRepo]):
 
 
     async def get_files_by_appointment(self, appointment_id: str) -> list[File]:
-        # In a real app, you'd validate the appointment name here
-        return self.repo.get_files_by_appointment(appointment_id)
+        """Get files by appointment with Redis caching."""
+        cache_key = f"files:appointment:{appointment_id}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    # Return cached data - handler will process
+                    return cached  # Return raw data, let handler deserialize
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss - query database
+        logger.debug(f"Cache MISS: {cache_key}")
+        files = self.repo.get_files_by_appointment(appointment_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and files:
+            try:
+                cache_data = [_serialize_file(f) for f in files]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return files
 
     async def list_all_files(self, user_id: str) -> list[tuple]:
-        return self.repo.list_all_files(user_id)
+        """List all files for a user with Redis caching."""
+        cache_key = f"files:user:{user_id}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached  # Return cached serialized data
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss - query database
+        logger.debug(f"Cache MISS: {cache_key}")
+        file_tuples = self.repo.list_all_files(user_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and file_tuples:
+            try:
+                cache_data = [_serialize_file_with_appointment(ft) for ft in file_tuples]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return file_tuples
 
     async def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> list[File]:
-        """List all files across all organizations (for platform admin)."""
-        return self.repo.list_all_platform_files(skip, limit)
+        """List all files across all organizations with Redis caching."""
+        cache_key = f"files:platform:skip={skip}:limit={limit}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss - query database
+        logger.debug(f"Cache MISS: {cache_key}")
+        files = self.repo.list_all_platform_files(skip, limit)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and files:
+            try:
+                cache_data = [_serialize_file(f) for f in files]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return files
 
     async def list_files_by_organization(self, organization_id: str, folder_id: str = None) -> list[File]:
-        """List all files for an organization, optionally filtered by folder."""
-        return self.repo.list_by_organization_and_folder(organization_id, folder_id)
+        """List all files for an organization with Redis caching."""
+        cache_key = f"files:org:{organization_id}:folder:{folder_id or 'root'}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss - query database
+        logger.debug(f"Cache MISS: {cache_key}")
+        files = self.repo.list_by_organization_and_folder(organization_id, folder_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and files:
+            try:
+                cache_data = [_serialize_file(f) for f in files]
+                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return files
+
+    def _invalidate_file_caches(self, file: File):
+        """Invalidate all caches related to a file."""
+        if not REDIS_AVAILABLE or not redis_cache:
+            return
+        
+        try:
+            patterns_to_clear = [
+                f"files:user:{file.user_id}",
+                f"files:platform:*",
+            ]
+            
+            if file.organization_id:
+                patterns_to_clear.append(f"files:org:{file.organization_id}:*")
+            
+            if file.appointment_id:
+                patterns_to_clear.append(f"files:appointment:{file.appointment_id}")
+            
+            # Clear by pattern
+            for pattern in patterns_to_clear:
+                if '*' in pattern:
+                    redis_cache.delete_pattern(pattern)
+                else:
+                    redis_cache.delete(pattern)
+            
+            logger.info(f"Invalidated file caches for file {file.id}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate file caches: {e}")
 
     async def delete_file(self, file_id: str, deleted_by: str = None):
         # First get the file record to extract MinIO path info
         file = self.repo.get_file(file_id)
         if file:
+            # Invalidate caches BEFORE deletion
+            self._invalidate_file_caches(file)
+            
             # Delete from MinIO
             try:
                 bucket_name = file.path.split("/")[0]

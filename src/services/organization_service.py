@@ -25,7 +25,20 @@ from entities.user import User
 from core.tenant import TenantContext
 from infrastructure.minio import minioStorage
 
+# Redis Caching
+try:
+    from infrastructure.redis_cache import redis_cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis_cache = None
+
 logger = logging.getLogger(__name__)
+
+# Cache TTL configuration
+CACHE_TTL_ORG = 300        # 5 minutes for org data
+CACHE_TTL_ORG_LIST = 180   # 3 minutes for org lists
+CACHE_TTL_STATS = 120      # 2 minutes for stats
 
 
 # ============================================================================
@@ -153,6 +166,49 @@ class OrganizationService(BaseService):
         self.audit_repo = AuditLogRepository(db)
         self.api_key_repo = APIKeyRepository(db)
     
+    def _invalidate_org_caches(self, org_id: str = None, slug: str = None):
+        """Invalidate organization-related caches."""
+        if not REDIS_AVAILABLE or not redis_cache:
+            return
+        try:
+            # Always clear the list cache
+            redis_cache.delete_pattern("orgs:list:*")
+            redis_cache.delete("orgs:count")
+            
+            if org_id:
+                redis_cache.delete(f"org:id:{org_id}")
+            if slug:
+                redis_cache.delete(f"org:slug:{slug}")
+            
+            logger.debug(f"Invalidated org caches for {org_id or slug}")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate org caches: {e}")
+
+    def _serialize_org(self, org: Organization) -> dict:
+        """Serialize organization for caching."""
+        if org is None:
+            return None
+        return {
+            'id': str(org.id),
+            'name': org.name,
+            'slug': org.slug,
+            'email': org.email,
+            'description': org.description,
+            'phone': org.phone,
+            'website': org.website,
+            'plan': org.plan,
+            'storage_quota_bytes': org.storage_quota_bytes,
+            'storage_used_bytes': org.storage_used_bytes,
+            'max_users': org.max_users,
+            'max_files': org.max_files,
+            'features': org.features,
+            'settings': org.settings,
+            'is_active': org.is_active,
+            'is_verified': org.is_verified,
+            'created_at': org.created_at.isoformat() if org.created_at else None,
+            'updated_at': org.updated_at.isoformat() if org.updated_at else None,
+        }
+    
     # -------------------------------------------------------------------------
     # Organization CRUD
     # -------------------------------------------------------------------------
@@ -206,6 +262,9 @@ class OrganizationService(BaseService):
         
         org = self.org_repo.create(org)
         
+        # Invalidate org list caches
+        self._invalidate_org_caches()
+        
         # Create MinIO bucket for tenant
         try:
             bucket_name = f"tenant-{org.slug}"
@@ -228,12 +287,58 @@ class OrganizationService(BaseService):
         return org, None
     
     def get_organization(self, org_id: str) -> Optional[Organization]:
-        """Get organization by ID."""
-        return self.org_repo.get_by_id(org_id)
+        """Get organization by ID with caching."""
+        cache_key = f"org:id:{org_id}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss
+        logger.debug(f"Cache MISS: {cache_key}")
+        org = self.org_repo.get_by_id(org_id)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and org:
+            try:
+                redis_cache.set(cache_key, self._serialize_org(org), ttl=CACHE_TTL_ORG)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return org
     
     def get_organization_by_slug(self, slug: str) -> Optional[Organization]:
-        """Get organization by slug."""
-        return self.org_repo.get_by_slug_active(slug)
+        """Get organization by slug with caching."""
+        cache_key = f"org:slug:{slug}"
+        
+        # Try cache first
+        if REDIS_AVAILABLE and redis_cache:
+            try:
+                cached = redis_cache.get(cache_key)
+                if cached:
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cached
+            except Exception as e:
+                logger.warning(f"Redis cache read failed: {e}")
+        
+        # Cache miss
+        logger.debug(f"Cache MISS: {cache_key}")
+        org = self.org_repo.get_by_slug_active(slug)
+        
+        # Store in cache
+        if REDIS_AVAILABLE and redis_cache and org:
+            try:
+                redis_cache.set(cache_key, self._serialize_org(org), ttl=CACHE_TTL_ORG)
+            except Exception as e:
+                logger.warning(f"Redis cache write failed: {e}")
+        
+        return org
     
     def update_organization(
         self,
@@ -273,6 +378,9 @@ class OrganizationService(BaseService):
         self.db.commit()
         self.db.refresh(org)
         
+        # Invalidate caches after update
+        self._invalidate_org_caches(org_id=str(org.id), slug=org.slug)
+        
         # Log audit event
         self._log_audit(
             action="organization.update",
@@ -299,6 +407,9 @@ class OrganizationService(BaseService):
         org = self.org_repo.get_by_id(org_id)
         if not org:
             return False, "Organization not found"
+        
+        # Invalidate caches before deletion
+        self._invalidate_org_caches(org_id=str(org.id), slug=org.slug)
         
         if hard_delete:
             # Delete MinIO bucket and all files
@@ -339,15 +450,44 @@ class OrganizationService(BaseService):
         plan: str = None,
         search: str = None
     ) -> Tuple[List[Organization], int]:
-        """List organizations with pagination and filtering."""
-        if search:
-            orgs = self.org_repo.search(search, skip, limit)
-            total = len(orgs)  # Approximate for search
-        else:
+        """List organizations with pagination and filtering (with caching for non-search queries)."""
+        
+        # Only cache non-search queries
+        if not search:
+            cache_key = f"orgs:list:skip={skip}:limit={limit}:plan={plan or 'all'}"
+            
+            # Try cache first
+            if REDIS_AVAILABLE and redis_cache:
+                try:
+                    cached = redis_cache.get(cache_key)
+                    if cached:
+                        logger.debug(f"Cache HIT: {cache_key}")
+                        return cached.get('orgs', []), cached.get('total', 0)
+                except Exception as e:
+                    logger.warning(f"Redis cache read failed: {e}")
+        
+            # Cache miss
+            logger.debug(f"Cache MISS: {cache_key}")
             orgs = self.org_repo.list_active(skip, limit, plan)
             total = self.org_repo.count_active(plan)
-        
-        return orgs, total
+            
+            # Store in cache
+            if REDIS_AVAILABLE and redis_cache:
+                try:
+                    cache_data = {
+                        'orgs': [self._serialize_org(o) for o in orgs],
+                        'total': total
+                    }
+                    redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_ORG_LIST)
+                except Exception as e:
+                    logger.warning(f"Redis cache write failed: {e}")
+            
+            return orgs, total
+        else:
+            # Search queries are not cached (too dynamic)
+            orgs = self.org_repo.search(search, skip, limit)
+            total = len(orgs)  # Approximate for search
+            return orgs, total
     
     # -------------------------------------------------------------------------
     # Plan & Quota Management

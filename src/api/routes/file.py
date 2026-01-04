@@ -22,6 +22,14 @@ import os
 # Event-Driven Architecture
 from events import publish_event, FileSharedEvent, FileDownloadedEvent, FilePreviewedEvent
 
+# Redis Caching
+try:
+    from infrastructure.redis_cache import redis_cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis_cache = None
+
 EVENT_DRIVEN_ENABLED = os.environ.get('EVENT_DRIVEN_ENABLED', 'true').lower() == 'true'
 
 logger = logging.getLogger(__name__)

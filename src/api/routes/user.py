@@ -34,12 +34,20 @@ def list_users(
     service: UserService = Depends(get_user_service),
     db: Session = Depends(mysql.get_db)
 ):
-    """List all users, optionally filtered by organization."""
+    """List all users, optionally filtered by organization (with caching when no filter)."""
     from entities.user import User as UserEntity
     
+    # Use cached service when no filter applied
+    if not organization_id:
+        users = service.list_users()
+        # Handle case where cached data is returned as dicts
+        if users and isinstance(users[0], dict):
+            return SuccessResponse(data=users)
+        return SuccessResponse(data=[User.model_validate(u) for u in users])
+    
+    # With filter, query directly (could be cached separately)
     query = db.query(UserEntity)
-    if organization_id:
-        query = query.filter(UserEntity.organization_id == organization_id)
+    query = query.filter(UserEntity.organization_id == organization_id)
     
     users = query.all()
     return SuccessResponse(data=[User.model_validate(u) for u in users])
