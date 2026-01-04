@@ -38,6 +38,9 @@ from .embedding_classifier import classify_with_embeddings, hybrid_classify, pre
 # LLM FALLBACK: Text-to-SQL for complex queries (~30s)
 from .text_to_sql_langchain import get_sql_agent, LangChainSQLAgent
 
+# TYPO CORRECTION: Fix misspellings before routing (~1ms)
+from .typo_corrector import get_typo_corrector, correct_query
+
 # HYBRID DSPy + LangChain: Automatic prompt optimization (optional)
 try:
     from .hybrid_sql_agent import get_hybrid_sql_agent, HybridSQLAgent
@@ -925,11 +928,19 @@ class ChatbotOrchestrator:
                 }
             }
         
+        # =====================================================================
+        # PRIORITY -0.5: TYPO CORRECTION - Fix misspellings (~1ms)
+        # =====================================================================
+        original_message = message
+        message, was_corrected = correct_query(message)
+        if was_corrected:
+            logger.info(f"[TYPO] Corrected: '{original_message}' → '{message}'")
+        
         # Get or create session
         session = self.session_manager.get_or_create_session(session_id, user_context)
         
-        # Add user message to history
-        session.add_message(MessageRole.USER, message)
+        # Add user message to history (store original for display, use corrected for processing)
+        session.add_message(MessageRole.USER, original_message)
         
         response = None
         routing_method = None
