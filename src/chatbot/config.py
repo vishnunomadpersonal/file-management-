@@ -3,11 +3,13 @@ Chatbot Configuration - Feature flags and provider settings
 
 Environment Variables:
 - CHATBOT_ENABLED: true/false - toggles entire chatbot feature
-- LLM_PROVIDER: "openai" | "ollama" | "none" - which AI provider to use
+- LLM_PROVIDER: "openai" | "ollama" | "nvidia" | "auto" | "none" - which AI provider to use
 - OPENAI_API_KEY: API key for OpenAI
 - OPENAI_MODEL: Model to use (default: gpt-4o-mini)
 - OLLAMA_BASE_URL: URL for Ollama server (default: http://localhost:11434)
 - OLLAMA_MODEL: Model to use (default: llama3.2)
+- NVIDIA_API_KEY: API key for NVIDIA NIM
+- NVIDIA_MODEL: Model to use (default: meta/llama-3.1-70b-instruct)
 """
 
 import os
@@ -20,6 +22,8 @@ class LLMProviderType(str, Enum):
     """Supported LLM providers."""
     OPENAI = "openai"
     OLLAMA = "ollama"
+    NVIDIA = "nvidia"
+    AUTO = "auto"  # Auto-select: NVIDIA if key exists, else Ollama
     NONE = "none"  # Rule-based, no AI
 
 
@@ -44,6 +48,11 @@ class ChatbotConfig:
     ollama_model: str
     ollama_timeout: int
     
+    # NVIDIA NIM settings
+    nvidia_api_key: Optional[str]
+    nvidia_model: str
+    nvidia_timeout: int
+    
     # General settings
     max_history_length: int  # Max messages to keep in context
     system_prompt: str
@@ -51,12 +60,25 @@ class ChatbotConfig:
     @classmethod
     def from_env(cls) -> 'ChatbotConfig':
         """Load configuration from environment variables."""
+        # Get provider from env
+        provider_str = os.environ.get('LLM_PROVIDER', 'ollama').lower()
+        nvidia_key = os.environ.get('NVIDIA_API_KEY')
+        
+        # Auto mode: use NVIDIA if key exists, else Ollama
+        if provider_str == 'auto':
+            if nvidia_key:
+                provider = LLMProviderType.NVIDIA
+            else:
+                provider = LLMProviderType.OLLAMA
+        else:
+            provider = LLMProviderType(provider_str)
+        
         return cls(
             # Feature flag
             enabled=os.environ.get('CHATBOT_ENABLED', 'false').lower() == 'true',
             
-            # Provider
-            provider=LLMProviderType(os.environ.get('LLM_PROVIDER', 'none').lower()),
+            # Provider (resolved from auto if needed)
+            provider=provider,
             
             # OpenAI
             openai_api_key=os.environ.get('OPENAI_API_KEY'),
@@ -69,6 +91,11 @@ class ChatbotConfig:
             ollama_model=os.environ.get('OLLAMA_MODEL', 'llama3.2'),
             ollama_timeout=int(os.environ.get('OLLAMA_TIMEOUT', '60')),
             
+            # NVIDIA NIM
+            nvidia_api_key=nvidia_key,
+            nvidia_model=os.environ.get('NVIDIA_MODEL', 'meta/llama-3.1-70b-instruct'),
+            nvidia_timeout=int(os.environ.get('NVIDIA_TIMEOUT', '60')),
+            
             # General
             max_history_length=int(os.environ.get('CHATBOT_MAX_HISTORY', '20')),
             system_prompt=os.environ.get('CHATBOT_SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT),
@@ -77,7 +104,7 @@ class ChatbotConfig:
     @property
     def is_ai_enabled(self) -> bool:
         """Check if an AI provider is configured."""
-        return self.provider in (LLMProviderType.OPENAI, LLMProviderType.OLLAMA)
+        return self.provider in (LLMProviderType.OPENAI, LLMProviderType.OLLAMA, LLMProviderType.NVIDIA)
 
 
 DEFAULT_SYSTEM_PROMPT = """You are FileVault Assistant, an AI helper for the FileVault document management platform.

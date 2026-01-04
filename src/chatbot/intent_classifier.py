@@ -559,6 +559,7 @@ INTENT_PATTERNS: List[Tuple[str, str, float, Dict]] = [
     # ----- TOP N -----
     (r"top\s*\d+.*(files?|largest)", "top_n_files_by_size", 0.95, {}),
     (r"top\s*\d+.*biggest", "top_n_files_by_size", 0.95, {}),
+    (r"top\s*\d+\s*(largest|biggest|smallest)\s*files?", "top_n_files_by_size", 0.98, {}),  # "top 3 largest files"
     
     (r"bottom\s*\d+.*(files?|smallest)", "bottom_n_files_by_size", 0.95, {}),
     

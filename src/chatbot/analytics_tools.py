@@ -2029,10 +2029,10 @@ ANALYTICS_TOOLS: Dict[str, AnalyticsTool] = {
             LEFT JOIN users u ON f.user_id = u.id
             WHERE 1=1 {org_filter}
             ORDER BY f.size DESC
-            LIMIT {n}
+            LIMIT {limit}
         """,
-        params=["org_id", "n"],
-        response_template="Top {n} largest files:\n{formatted_data}",
+        params=["org_id"],
+        response_template="Top {limit} largest files:\n{formatted_data}",
         requires_org_filter=True
     ),
     

@@ -547,7 +547,7 @@ class RuleBasedProvider(LLMProvider):
             ),
             # Navigation - Infrastructure (includes containers, docker, services status)
             (
-                re.compile(r'\b(infrastructure|infra|servers?|containers?|docker|services?\s*(status|running|up|down|health)|everything\s*(up|running)|take me to.*infrastructure)\b', re.IGNORECASE),
+                re.compile(r'\b(infrastructure|infra|servers?|containers?|docker|services?\s*(status|running|up|down|health)|running\s+services?|show.*services?|list.*services?|everything\s*(up|running)|take me to.*infrastructure|minio|rabbitmq)\b', re.IGNORECASE),
                 self._handle_navigate_infrastructure
             ),
             # Navigation - Platform Admin

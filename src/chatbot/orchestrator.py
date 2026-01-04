@@ -317,8 +317,8 @@ class ChatbotOrchestrator:
         re.compile(r'\b(get|show|find)\s+(me\s+)?(the\s+)?approv', re.IGNORECASE),
         # "Which" questions
         re.compile(r'\bwhich\s+(user|org|file|folder)s?\s+(have|has|is|are|uploaded|created)\b', re.IGNORECASE),
-        # Rankings/Top N
-        re.compile(r'\b(top|bottom)\s+\d+\s+(user|org|file|uploader)s?\b', re.IGNORECASE),
+        # Rankings/Top N (allow adjectives like "largest", "biggest" between number and entity)
+        re.compile(r'\b(top|bottom)\s+\d+\s+(largest|biggest|smallest|heaviest|active|recent)?\s*(user|org|file|uploader|document)s?\b', re.IGNORECASE),
         re.compile(r'\b(most|least)\s+(active|files?|uploads?|storage)\b', re.IGNORECASE),
         # Time-based complex queries
         re.compile(r'\b(last|past|previous)\s+(\d+\s+)?(week|month|day|year)s?\b', re.IGNORECASE),
@@ -808,8 +808,9 @@ class ChatbotOrchestrator:
         infra_keywords = [
             'container', 'docker', 'infrastructure', 'infra',
             'services running', 'services up', 'services down', 'services status',
+            'running services', 'show services', 'list services', 'services list',
             'everything up', 'everything running', 'everything down',
-            'server status', 'server health', 'system health'
+            'server status', 'server health', 'system health', 'minio', 'rabbitmq'
         ]
         
         for keyword in infra_keywords:

@@ -108,22 +108,28 @@ For folders table: WHERE organization_id = '{org_id}'"""
 class SafeSQLDatabase(SQLDatabase):
     """Extended SQLDatabase with additional safety checks."""
     
-    FORBIDDEN_KEYWORDS = [
-        'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE',
-        'CREATE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE',
-        'INTO OUTFILE', 'INTO DUMPFILE', 'LOAD_FILE'
-    ]
+    # Keywords that must be exact word matches (to allow 'created_at' but not 'CREATE')
+    FORBIDDEN_EXACT = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE']
+    # Patterns that should not appear anywhere
+    FORBIDDEN_PATTERNS = ['INTO OUTFILE', 'INTO DUMPFILE', 'LOAD_FILE', '--', '/*']
     
     def run(self, command: str, fetch: str = "all") -> str:
         """Override run to add safety checks."""
+        import re
         # Safety check
         command_upper = command.upper()
         if not command_upper.strip().startswith('SELECT'):
             return "Error: Only SELECT queries are allowed."
         
-        for keyword in self.FORBIDDEN_KEYWORDS:
-            if keyword in command_upper:
+        # Check exact word matches (allows 'created_at' but blocks 'CREATE TABLE')
+        for keyword in self.FORBIDDEN_EXACT:
+            if re.search(rf'\b{keyword}\b', command_upper):
                 return f"Error: Forbidden keyword '{keyword}' detected."
+        
+        # Check forbidden patterns
+        for pattern in self.FORBIDDEN_PATTERNS:
+            if pattern in command_upper:
+                return f"Error: Forbidden pattern '{pattern}' detected."
         
         # Add row limit if not present
         if 'LIMIT' not in command_upper:
@@ -192,14 +198,38 @@ class LangChainSQLAgent:
         logger.info(f"Connected to database with tables: {self.include_tables}")
     
     def _init_llm(self):
-        """Initialize Ollama LLM."""
-        self.llm = ChatOllama(
-            base_url=self.ollama_base_url,
-            model=self.model,
-            temperature=0,  # Deterministic for SQL
-            timeout=120
-        )
-        logger.info(f"Ollama LLM initialized: {self.model}")
+        """Initialize LLM based on provider configuration."""
+        import os
+        
+        # Check for NVIDIA API key first (auto mode or explicit nvidia)
+        nvidia_api_key = os.getenv("NVIDIA_API_KEY")
+        llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
+        
+        # Auto mode: use NVIDIA if key exists
+        if llm_provider == "auto" and nvidia_api_key:
+            llm_provider = "nvidia"
+        
+        if llm_provider == "nvidia" and nvidia_api_key:
+            # Use NVIDIA NIM API
+            from .providers.nvidia_provider import NvidiaLangChainLLM
+            nvidia_model = os.getenv("NVIDIA_MODEL", "qwen/qwen3-next-80b-a3b-instruct")
+            self.llm = NvidiaLangChainLLM(
+                api_key=nvidia_api_key,
+                model=nvidia_model,
+                temperature=0.1
+            )
+            self.llm_provider = "nvidia"
+            logger.info(f"NVIDIA NIM LLM initialized: {nvidia_model}")
+        else:
+            # Default to Ollama
+            self.llm = ChatOllama(
+                base_url=self.ollama_base_url,
+                model=self.model,
+                temperature=0,  # Deterministic for SQL
+                timeout=120
+            )
+            self.llm_provider = "ollama"
+            logger.info(f"Ollama LLM initialized: {self.model}")
     
     def _init_chains(self):
         """Initialize LangChain prompts (we'll call LLM directly)."""
@@ -342,12 +372,19 @@ Response:
         if not query_upper.startswith('SELECT'):
             return False, "Only SELECT queries allowed"
         
-        # Check forbidden keywords
-        forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 
-                    'CREATE', 'GRANT', '--', '/*']
-        for kw in forbidden:
-            if kw in query_upper:
+        # Check forbidden keywords (use word boundaries to allow 'created_at' etc)
+        forbidden_exact = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'GRANT']
+        forbidden_patterns = ['--', '/*', 'INTO OUTFILE', 'INTO DUMPFILE']
+        
+        for kw in forbidden_exact:
+            # Use word boundary check: CREATE should not match created_at
+            import re
+            if re.search(rf'\b{kw}\b', query_upper):
                 return False, f"Forbidden keyword: {kw}"
+        
+        for pattern in forbidden_patterns:
+            if pattern in query_upper:
+                return False, f"Forbidden pattern: {pattern}"
         
         return True, ""
     
