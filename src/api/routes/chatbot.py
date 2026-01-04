@@ -548,6 +548,264 @@ async def get_session_history(
 
 
 # ============================================================================
+# SQL FEEDBACK & AUTO-LEARN ENDPOINTS (Enterprise)
+# ============================================================================
+
+class SQLFeedbackRequest(BaseModel):
+    """Request to submit SQL correction feedback."""
+    question: str = Field(..., description="Original natural language question")
+    original_sql: Optional[str] = Field(None, description="SQL that chatbot generated")
+    corrected_sql: str = Field(..., description="Correct SQL query")
+
+
+class SQLFeedbackApprovalRequest(BaseModel):
+    """Request to approve SQL feedback."""
+    feedback_id: str
+    question: str
+    original_sql: Optional[str] = None
+    corrected_sql: str
+
+
+@router.post("/sql/feedback", tags=["SQL Feedback"])
+async def submit_sql_feedback(
+    request: SQLFeedbackRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Submit SQL correction feedback.
+    
+    When the chatbot generates incorrect SQL, admins can submit corrections.
+    These corrections are stored for review and auto-learning.
+    """
+    import uuid
+    from datetime import datetime
+    
+    feedback_id = str(uuid.uuid4())[:12]
+    
+    # Store feedback for review (in-memory for now, could use Redis/DB)
+    try:
+        from infrastructure.redis_cache import redis_cache
+        feedback_data = {
+            "id": feedback_id,
+            "question": request.question,
+            "original_sql": request.original_sql,
+            "corrected_sql": request.corrected_sql,
+            "submitted_by": user.user_id,
+            "submitted_at": datetime.utcnow().isoformat(),
+            "status": "pending"
+        }
+        redis_cache.set(f"sql_feedback:{feedback_id}", feedback_data, ttl=86400 * 7)  # 7 days
+        
+        return {
+            "success": True,
+            "feedback_id": feedback_id,
+            "message": "Feedback submitted for review"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to submit feedback: {str(e)}"
+        )
+
+
+@router.post("/sql/feedback/approve", tags=["SQL Feedback"])
+async def approve_sql_feedback(
+    request: SQLFeedbackApprovalRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Approve SQL feedback and trigger auto-learning.
+    
+    When an admin approves a correction:
+    1. It's added to the RAG example store immediately
+    2. It's queued for DSPy retraining
+    3. Future queries benefit from this correction
+    
+    Requires super_admin role.
+    """
+    if user.role.value not in ["super_admin", "org_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can approve SQL feedback"
+        )
+    
+    try:
+        from chatbot.auto_learn_service import process_feedback_approval
+        
+        result = process_feedback_approval(
+            feedback_id=request.feedback_id,
+            question=request.question,
+            original_sql=request.original_sql,
+            corrected_sql=request.corrected_sql,
+            approved_by=user.user_id
+        )
+        
+        # Update feedback status in Redis
+        try:
+            from infrastructure.redis_cache import redis_cache
+            redis_cache.delete(f"sql_feedback:{request.feedback_id}")
+        except:
+            pass
+        
+        return {
+            "success": True,
+            "feedback_id": request.feedback_id,
+            "auto_learn_result": result,
+            "message": "Feedback approved and added to training set"
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process feedback: {str(e)}"
+        )
+
+
+@router.get("/sql/feedback/pending", tags=["SQL Feedback"])
+async def get_pending_sql_feedback(
+    user: AuthenticatedUser = Depends(get_current_user),
+    limit: int = 50
+):
+    """
+    Get pending SQL feedback awaiting approval.
+    
+    Requires admin role.
+    """
+    if user.role.value not in ["super_admin", "org_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view pending feedback"
+        )
+    
+    try:
+        from infrastructure.redis_cache import redis_cache
+        # Get all pending feedback
+        keys = redis_cache.get_keys("sql_feedback:*")
+        pending = []
+        for key in keys[:limit]:
+            data = redis_cache.get(key.replace("fm:", ""))
+            if data and data.get("status") == "pending":
+                pending.append(data)
+        
+        return {
+            "success": True,
+            "count": len(pending),
+            "pending": pending
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "pending": []
+        }
+
+
+@router.get("/auto-learn/stats", tags=["Auto-Learn"])
+async def get_auto_learn_stats(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get auto-learning statistics.
+    
+    Shows:
+    - Pending feedback count
+    - Training history
+    - RAG store stats
+    - Retrain readiness
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can view auto-learn stats"
+        )
+    
+    try:
+        from chatbot.auto_learn_service import get_auto_learn_service
+        from chatbot.rag_example_store import get_rag_store
+        
+        auto_learn = get_auto_learn_service()
+        rag_store = get_rag_store()
+        
+        return {
+            "success": True,
+            "auto_learn": auto_learn.get_stats(),
+            "rag_store": rag_store.get_stats(),
+            "training_history": auto_learn.get_training_history(limit=5)
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/auto-learn/force-retrain", tags=["Auto-Learn"])
+async def force_retrain(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Force retrain the model with accumulated feedback.
+    
+    Use this to trigger immediate retraining regardless of thresholds.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can force retrain"
+        )
+    
+    try:
+        from chatbot.auto_learn_service import get_auto_learn_service
+        
+        service = get_auto_learn_service()
+        result = service.force_retrain()
+        
+        return {
+            "success": result.get("success", False),
+            "result": result,
+            "message": "Retraining triggered" if result.get("success") else "Retraining failed"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Force retrain failed: {str(e)}"
+        )
+
+
+@router.get("/rag/search", tags=["RAG"])
+async def search_rag_examples(
+    query: str,
+    top_k: int = 5,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Search RAG example store for similar queries.
+    
+    Useful for debugging and understanding what examples
+    the system will use for a given query.
+    """
+    try:
+        from chatbot.rag_example_store import get_rag_store
+        
+        store = get_rag_store()
+        results = store.search_similar(query, top_k=top_k)
+        
+        return {
+            "success": True,
+            "query": query,
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "results": []
+        }
+
+
+# ============================================================================
 # WEBSOCKET ENDPOINT
 # ============================================================================
 

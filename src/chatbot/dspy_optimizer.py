@@ -597,15 +597,46 @@ class DSPyTextToSQL:
                 "error": str(e)
             }
     
-    def generate_sql(self, question: str) -> Tuple[str, Dict[str, Any]]:
+    def generate_sql(self, question: str, use_rag: bool = True) -> Tuple[str, Dict[str, Any]]:
         """
         Generate SQL for a natural language question.
+        
+        Args:
+            question: Natural language question
+            use_rag: Whether to use RAG for dynamic example retrieval
         
         Returns:
             Tuple of (sql_query, metadata)
         """
         try:
-            sql = self.sql_generator(question=question, schema=DATABASE_SCHEMA)
+            # Get relevant examples via RAG for enhanced context
+            rag_examples = []
+            if use_rag:
+                try:
+                    from chatbot.rag_example_store import retrieve_examples
+                    rag_examples = retrieve_examples(question, top_k=5)
+                    logger.debug(f"RAG retrieved {len(rag_examples)} examples for: {question[:50]}")
+                except Exception as e:
+                    logger.warning(f"RAG retrieval failed, using base examples: {e}")
+            
+            # Build enhanced schema with relevant examples
+            enhanced_schema = DATABASE_SCHEMA
+            if rag_examples:
+                examples_text = "\n\nRELEVANT EXAMPLES:\n"
+                for i, ex in enumerate(rag_examples, 1):
+                    examples_text += f"{i}. Q: {ex['question']}\n   SQL: {ex['sql']}\n"
+                enhanced_schema = enhanced_schema + examples_text
+            
+            # Generate SQL using the model
+            result = self.sql_generator(question=question, schema=enhanced_schema)
+            
+            # Handle different return types from DSPy
+            if hasattr(result, 'sql'):
+                sql = result.sql
+            elif isinstance(result, str):
+                sql = result
+            else:
+                sql = str(result)
             
             # Clean up SQL
             sql = sql.strip()
@@ -617,7 +648,9 @@ class DSPyTextToSQL:
             return sql, {
                 "success": True,
                 "is_optimized": self.is_optimized,
-                "model": self.model_name
+                "model": self.model_name,
+                "rag_examples_used": len(rag_examples),
+                "rag_enabled": use_rag
             }
             
         except Exception as e:
