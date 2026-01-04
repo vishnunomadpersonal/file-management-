@@ -16,6 +16,7 @@ from events.event_bus import (
     db_updater_queue,
     audit_log_queue,
     websocket_queue,
+    cache_invalidation_queue,
     publish_event,
     get_connection
 )
@@ -25,6 +26,14 @@ from events.event_types import (
     VirusDetectedEvent,
     parse_event
 )
+
+# Redis cache for invalidation
+try:
+    from infrastructure.redis_cache import redis_cache
+    REDIS_AVAILABLE = True
+except ImportError:
+    redis_cache = None
+    REDIS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +338,120 @@ class AuditLogConsumer(ConsumerMixin):
 
 
 # =============================================================================
+# CACHE INVALIDATION CONSUMER - CRITICAL FOR DATA CONSISTENCY
+# =============================================================================
+
+class CacheInvalidationConsumer(ConsumerMixin):
+    """
+    Listens to: ALL events (#)
+    Action: Invalidates relevant Redis cache entries when data changes
+    
+    This ensures cache consistency - when files/users/orgs change,
+    cached query results are invalidated.
+    
+    Without this, users would see stale data from cache!
+    """
+    
+    # Events that affect file-related caches
+    FILE_EVENTS = {
+        'file.upload.completed',
+        'file.upload.started',
+        'file.upload.failed',
+        'file.deleted',
+        'file.shared',
+        'file.downloaded',
+        'virus.scan.completed',
+        'virus.detected',
+    }
+    
+    # Events that affect user-related caches
+    USER_EVENTS = {
+        'user.created',
+        'user.updated',
+        'user.deleted',
+        'user.role.changed',
+        'user.status.changed',
+    }
+    
+    # Events that affect organization caches
+    ORG_EVENTS = {
+        'organization.created',
+        'organization.updated',
+        'organization.deleted',
+    }
+    
+    def __init__(self):
+        self.connection = get_connection()
+    
+    def get_consumers(self, Consumer, channel):
+        return [Consumer(
+            queues=[cache_invalidation_queue],
+            callbacks=[self.on_event],
+            accept=['json']
+        )]
+    
+    def on_event(self, body, message):
+        """
+        Handle any event - invalidate relevant caches.
+        
+        Strategy:
+        - File events → Invalidate file_*, storage_*, recent_* caches
+        - User events → Invalidate user_* caches
+        - Org events → Invalidate ALL caches for that org
+        """
+        if not REDIS_AVAILABLE or not redis_cache:
+            message.ack()
+            return
+        
+        try:
+            event_type = body.get('event_type', '')
+            org_id = body.get('organization_id') or body.get('org_id')
+            user_id = body.get('user_id')
+            
+            invalidated_count = 0
+            
+            # File events - invalidate file-related caches
+            if event_type in self.FILE_EVENTS:
+                # Invalidate file count/list caches
+                invalidated_count += redis_cache.delete_pattern("*file*", prefix="sql")
+                invalidated_count += redis_cache.delete_pattern("*storage*", prefix="sql")
+                invalidated_count += redis_cache.delete_pattern("*recent*", prefix="sql")
+                invalidated_count += redis_cache.delete_pattern("*upload*", prefix="sql")
+                logger.debug(f"Cache invalidated for file event: {event_type} ({invalidated_count} keys)")
+            
+            # User events - invalidate user-related caches
+            elif event_type in self.USER_EVENTS:
+                invalidated_count += redis_cache.delete_pattern("*user*", prefix="sql")
+                if user_id:
+                    invalidated_count += redis_cache.invalidate_user(user_id)
+                logger.debug(f"Cache invalidated for user event: {event_type} ({invalidated_count} keys)")
+            
+            # Organization events - invalidate ALL caches for that org
+            elif event_type in self.ORG_EVENTS:
+                if org_id:
+                    invalidated_count += redis_cache.invalidate_org(org_id)
+                    invalidated_count += redis_cache.delete_pattern(f"*{org_id}*", prefix="sql")
+                else:
+                    # Can't determine org, flush all sql caches
+                    invalidated_count += redis_cache.delete_pattern("*", prefix="sql")
+                logger.debug(f"Cache invalidated for org event: {event_type} ({invalidated_count} keys)")
+            
+            # Any other event - selective invalidation based on event_type prefix
+            else:
+                # Extract the domain from event type (e.g., "file" from "file.something")
+                domain = event_type.split('.')[0] if '.' in event_type else event_type
+                if domain:
+                    invalidated_count += redis_cache.delete_pattern(f"*{domain}*", prefix="sql")
+                    logger.debug(f"Cache invalidated for {domain} domain ({invalidated_count} keys)")
+            
+            message.ack()
+            
+        except Exception as e:
+            logger.error(f"Cache invalidation failed: {e}")
+            message.ack()  # Don't requeue - cache will expire naturally
+
+
+# =============================================================================
 # CONSUMER REGISTRY
 # =============================================================================
 
@@ -338,6 +461,7 @@ CONSUMERS = {
     'notification': NotificationConsumer,
     'websocket': WebSocketConsumer,
     'audit_log': AuditLogConsumer,
+    'cache_invalidation': CacheInvalidationConsumer,
 }
 
 

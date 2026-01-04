@@ -55,6 +55,10 @@ cloudpickle>=3.0.0  # Required by DSPy
 asyncer>=0.0.8  # Required by DSPy
 structlog>=24.0.0  # Required by DSPy
 
+# Redis - CRITICAL for production performance!
+# Without Redis, every request hits the database directly
+redis>=5.0.0  # High-performance caching layer
+
 # Embedding model for hybrid intent classification (all-MiniLM-L6-v2)
 # Using newer version compatible with huggingface_hub
 sentence-transformers==3.0.1

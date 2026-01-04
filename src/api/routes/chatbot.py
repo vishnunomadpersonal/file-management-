@@ -99,6 +99,7 @@ class HealthResponse(BaseModel):
     provider: Dict[str, Any]
     sessions: Dict[str, Any]
     config: Dict[str, Any]
+    cache: Optional[Dict[str, Any]] = None  # Redis cache status
 
 
 # ============================================================================
@@ -256,12 +257,95 @@ async def health_check():
     """
     Get chatbot health status.
     
-    Shows provider health, session statistics, and configuration.
+    Shows provider health, session statistics, configuration, and Redis cache status.
     """
     chatbot = get_chatbot()
     health = await chatbot.health_check()
     
+    # Add Redis cache status
+    try:
+        from infrastructure.redis_cache import redis_cache
+        health['cache'] = redis_cache.health_check()
+    except ImportError:
+        health['cache'] = {"status": "not_installed", "backend": "none"}
+    except Exception as e:
+        health['cache'] = {"status": "error", "error": str(e)}
+    
     return HealthResponse(**health)
+
+
+# ============================================================================
+# REDIS CACHE MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@router.get("/cache/stats")
+async def get_cache_stats(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get Redis cache statistics.
+    
+    Shows hits, misses, hit rate, and backend status.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can view cache statistics"
+        )
+    
+    try:
+        from infrastructure.redis_cache import redis_cache
+        return {
+            "success": True,
+            "data": redis_cache.health_check()
+        }
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Redis cache not installed",
+            "data": {"status": "not_available"}
+        }
+
+
+@router.post("/cache/flush")
+async def flush_cache(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Flush all chatbot-related caches.
+    
+    Use with caution - this will cause temporary performance degradation
+    as caches need to be rebuilt.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can flush cache"
+        )
+    
+    try:
+        from infrastructure.redis_cache import redis_cache
+        
+        # Flush SQL query caches
+        deleted = redis_cache.delete_pattern("*", prefix="sql")
+        
+        return {
+            "success": True,
+            "message": f"Cache flushed successfully. {deleted} keys deleted.",
+            "deleted_keys": deleted
+        }
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Redis cache not installed"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Cache flush failed: {str(e)}"
+        )
 
 
 # ============================================================================

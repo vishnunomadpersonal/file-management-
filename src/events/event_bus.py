@@ -112,6 +112,18 @@ websocket_queue = Queue(
     }
 )
 
+# Redis cache invalidation queue - CRITICAL for cache consistency
+cache_invalidation_queue = Queue(
+    'events.cache_invalidation',
+    exchange=events_exchange,
+    routing_key='#',  # Listens to ALL events to invalidate relevant caches
+    durable=True,
+    queue_arguments={
+        'x-dead-letter-exchange': 'events.dlx',
+        'x-message-ttl': 300000,  # 5 minutes
+    }
+)
+
 
 # =============================================================================
 # EVENT PUBLISHER

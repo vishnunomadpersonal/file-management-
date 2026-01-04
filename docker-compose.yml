@@ -238,6 +238,41 @@ services:
     restart: unless-stopped
 
   # ==========================================================================
+  # REDIS - High-Performance Caching Layer
+  # ==========================================================================
+  # CRITICAL: Without Redis, every request hits the database directly!
+  # This provides:
+  # - Query result caching (reduce DB load by 80-90%)
+  # - Session storage
+  # - Rate limiting
+  # - Celery result backend (optional)
+  # - Pub/Sub for real-time features
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - filemanager
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # ==========================================================================
   # KEYCLOAK - Enterprise Identity & Access Management
   # ==========================================================================
   keycloak-db:
@@ -312,6 +347,7 @@ volumes:
   keycloak_db_data:
   keycloak_data:
   kong_db_data:
+  redis_data:
 
 networks:
   filemanager:

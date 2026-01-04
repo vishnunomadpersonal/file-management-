@@ -78,6 +78,25 @@ class Config:
             port=int(self.RABBITMQ_PORT),
         )
 
+    # ==========================================================================
+    # REDIS - Caching Layer Configuration
+    # ==========================================================================
+    # CRITICAL: Redis is essential for production performance!
+    # Without Redis, every API request hits the database directly.
+    REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+    REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
+    REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')  # Empty for no auth
+    REDIS_DB = int(os.getenv('REDIS_DB', '0'))
+    REDIS_CACHE_TTL = int(os.getenv('REDIS_CACHE_TTL', '300'))  # 5 minutes default
+    REDIS_ENABLED = os.getenv('REDIS_ENABLED', 'true').lower() == 'true'
+    
+    @property
+    def REDIS_URL(self):
+        """Redis connection URL."""
+        if self.REDIS_PASSWORD:
+            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
     # Keycloak Configuration
     KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
     KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "filemanager")
