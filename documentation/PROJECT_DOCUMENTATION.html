@@ -231,9 +231,13 @@
             <li>9. Docker Services</li>
             <li>10. Technologies Used</li>
             <li><strong style="color: #667eea;">11. AI Analytics Chatbot</strong></li>
-            <li><strong style="color: #48bb78;">12. Redis Caching Layer (NEW)</strong></li>
-            <li><strong style="color: #ed8936;">13. RAG Vector Store (NEW)</strong></li>
-            <li><strong style="color: #e53e3e;">14. Auto-Learn Feedback System (NEW)</strong></li>
+            <li><strong style="color: #48bb78;">12. Redis Caching Layer</strong></li>
+            <li><strong style="color: #ed8936;">13. RAG Vector Store</strong></li>
+            <li><strong style="color: #e53e3e;">14. Auto-Learn Feedback System</strong></li>
+            <li><strong style="color: #9f7aea;">15. Infrastructure Monitoring (NEW)</strong></li>
+            <li><strong style="color: #38b2ac;">16. DSPy Prompt Optimization (NEW)</strong></li>
+            <li><strong style="color: #dd6b20;">17. Organization Management (NEW)</strong></li>
+            <li><strong style="color: #3182ce;">18. Folder & File Sharing (NEW)</strong></li>
         </ul>
     </div>
 
@@ -1464,10 +1468,690 @@ Response:
         <li><strong>Audit Trail:</strong> Full history of feedback and retraining events</li>
     </ul>
 
+    <!-- SECTION 15: INFRASTRUCTURE MONITORING -->
+    <div class="page-break"></div>
+    <h2>15. Infrastructure Monitoring</h2>
+    
+    <p>The platform includes a comprehensive <strong>infrastructure monitoring system</strong> that provides real-time Docker container metrics, system statistics, and container management capabilities.</p>
+
+    <div class="highlight">
+        <h3>🖥️ Real-Time Monitoring</h3>
+        <p>Monitor CPU, memory, network I/O, and disk usage across all containers with admin-only access controls.</p>
+    </div>
+
+    <h3>15.1 Architecture</h3>
+    <div class="architecture-box">
+┌─────────────────────────────────────────────────────────────────┐
+│                 Infrastructure Monitoring                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Admin Request ──► Auth Check ──► Docker API ──► Metrics       │
+│                                                                  │
+│   Metrics Collected:                                             │
+│   ├── CPU Usage (per container)                                  │
+│   ├── Memory Usage (used/limit)                                  │
+│   ├── Network I/O (bytes in/out)                                 │
+│   ├── Disk I/O (read/write rates)                                │
+│   └── Container Status (running/stopped/healthy)                 │
+│                                                                  │
+│   Container Actions:                                             │
+│   ├── Start                                                      │
+│   ├── Stop                                                       │
+│   └── Restart                                                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+    </div>
+
+    <h3>15.2 API Endpoints</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+            <th>Auth</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/health</code></td>
+            <td>Check Docker daemon connectivity</td>
+            <td>Public</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/containers</code></td>
+            <td>List all containers with real-time stats</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/containers/{id}/stats</code></td>
+            <td>Get detailed stats for one container</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/containers/{id}/logs</code></td>
+            <td>Get container logs (tail, since)</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/system</code></td>
+            <td>System-wide metrics (CPU, memory, disk)</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/system/io</code></td>
+            <td>Real-time I/O statistics</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/infrastructure/containers/{id}/action</code></td>
+            <td>Start/stop/restart container</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/infrastructure/summary</code></td>
+            <td>Complete dashboard summary</td>
+            <td>Admin</td>
+        </tr>
+    </table>
+
+    <h3>15.3 Example Response</h3>
+    <div class="box">
+        <pre>
+GET /api/v1/infrastructure/containers
+
+[
+  {
+    "id": "abc123",
+    "name": "filemanager",
+    "status": "running",
+    "health": "healthy",
+    "cpu_percent": 2.5,
+    "memory_used_mb": 256,
+    "memory_limit_mb": 512,
+    "memory_percent": 50.0,
+    "network_rx_bytes": 1048576,
+    "network_tx_bytes": 524288,
+    "uptime": "2 days, 5:30:00"
+  },
+  {
+    "id": "def456",
+    "name": "redis",
+    "status": "running",
+    "health": "healthy",
+    "cpu_percent": 0.1,
+    "memory_used_mb": 32,
+    "memory_limit_mb": 256,
+    "memory_percent": 12.5
+  }
+]
+        </pre>
+    </div>
+
+    <!-- SECTION 16: DSPY PROMPT OPTIMIZATION -->
+    <div class="page-break"></div>
+    <h2>16. DSPy Prompt Optimization</h2>
+    
+    <p>The platform uses <strong>DSPy</strong> (Declarative Self-Improving Language Programs) for intelligent prompt optimization, enabling automatic improvement of Text-to-SQL generation.</p>
+
+    <div class="highlight">
+        <h3>⚙️ Self-Improving Prompts</h3>
+        <p>DSPy automatically optimizes prompts based on training data, achieving higher accuracy without manual prompt engineering.</p>
+    </div>
+
+    <h3>16.1 Architecture</h3>
+    <div class="architecture-box">
+┌─────────────────────────────────────────────────────────────────┐
+│                  DSPy Optimization Pipeline                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Training Data ──► DSPy Compiler ──► Optimized Program         │
+│                                                                  │
+│   Components:                                                    │
+│   ├── Text2SQL Module (question → SQL)                          │
+│   ├── Chain-of-Thought reasoning                                 │
+│   ├── Bootstrap few-shot examples                                │
+│   └── RAG example injection                                      │
+│                                                                  │
+│   Optimization Strategies:                                       │
+│   ├── BootstrapFewShot (default)                                 │
+│   ├── BootstrapFewShotWithRandomSearch                          │
+│   └── COPRO (advanced)                                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+    </div>
+
+    <h3>16.2 API Endpoints</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+            <th>Auth</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/chat/dspy/status</code></td>
+            <td>Get DSPy optimizer status and metrics</td>
+            <td>User</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/chat/dspy/optimize</code></td>
+            <td>Trigger prompt optimization</td>
+            <td>Admin</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/chat/dspy/training</code></td>
+            <td>Add training examples for optimization</td>
+            <td>Admin</td>
+        </tr>
+    </table>
+
+    <h3>16.3 Cache Management</h3>
+    <p>The chatbot includes intelligent response caching to reduce LLM calls and improve latency.</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/chat/cache/stats</code></td>
+            <td>Get cache hit/miss statistics</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/chat/cache/flush</code></td>
+            <td>Clear the response cache</td>
+        </tr>
+    </table>
+
+    <h3>16.4 Session Management</h3>
+    <p>Chatbot sessions maintain conversation history for context-aware responses.</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">DELETE</span></td>
+            <td><code>/chat/session/{session_id}</code></td>
+            <td>End a chat session</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/chat/session/{session_id}/history</code></td>
+            <td>Get session conversation history</td>
+        </tr>
+    </table>
+
+    <h3>16.5 Example: DSPy Status</h3>
+    <div class="box">
+        <pre>
+GET /api/v1/chat/dspy/status
+
+{
+  "status": "optimized",
+  "model": "llama3.2",
+  "provider": "ollama",
+  "optimization_strategy": "BootstrapFewShot",
+  "training_examples": 144,
+  "last_optimized": "2026-01-04T10:30:00Z",
+  "metrics": {
+    "accuracy": 0.94,
+    "avg_latency_ms": 2500
+  }
+}
+        </pre>
+    </div>
+
+    <!-- SECTION 17: ORGANIZATION MANAGEMENT -->
+    <div class="page-break"></div>
+    <h2>17. Organization Management</h2>
+    
+    <p>The platform supports <strong>multi-tenant organization management</strong> with plans, quotas, API keys, and comprehensive audit logging.</p>
+
+    <div class="highlight">
+        <h3>🏢 Multi-Tenant Architecture</h3>
+        <p>Each organization has isolated storage, users, and configurable plans with different quotas and features.</p>
+    </div>
+
+    <h3>17.1 Organization Plans</h3>
+    <table>
+        <tr>
+            <th>Plan</th>
+            <th>Storage</th>
+            <th>Users</th>
+            <th>Files</th>
+            <th>Features</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">Free</span></td>
+            <td>1 GB</td>
+            <td>5</td>
+            <td>100</td>
+            <td>Basic file management</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">Pro</span></td>
+            <td>100 GB</td>
+            <td>50</td>
+            <td>10,000</td>
+            <td>+ AI Chatbot, Sharing</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">Enterprise</span></td>
+            <td>1 TB</td>
+            <td>Unlimited</td>
+            <td>Unlimited</td>
+            <td>+ Custom ML, SSO, Audit</td>
+        </tr>
+    </table>
+
+    <h3>17.2 API Endpoints</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/organizations</code></td>
+            <td>Create organization</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/organizations</code></td>
+            <td>List organizations</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/organizations/{id}</code></td>
+            <td>Get organization details</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">PUT</span></td>
+            <td><code>/organizations/{id}</code></td>
+            <td>Update organization</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">DELETE</span></td>
+            <td><code>/organizations/{id}</code></td>
+            <td>Delete organization</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/organizations/{id}/stats</code></td>
+            <td>Get usage statistics</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/organizations/{id}/audit-logs</code></td>
+            <td>Get audit log history</td>
+        </tr>
+    </table>
+
+    <h3>17.3 API Key Management</h3>
+    <p>Organizations can create API keys for programmatic access with role-based permissions.</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/organizations/{id}/api-keys</code></td>
+            <td>Create new API key</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/organizations/{id}/api-keys</code></td>
+            <td>List API keys</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">DELETE</span></td>
+            <td><code>/organizations/{id}/api-keys/{key_id}</code></td>
+            <td>Revoke API key</td>
+        </tr>
+    </table>
+
+    <h3>17.4 User Management</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/users</code></td>
+            <td>Create user</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/users</code></td>
+            <td>List users (with org filter)</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/users/approved</code></td>
+            <td>List approved users with approver</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">PUT</span></td>
+            <td><code>/users/{id}/status</code></td>
+            <td>Update user status</td>
+        </tr>
+    </table>
+
+    <!-- SECTION 18: FOLDER & FILE SHARING -->
+    <div class="page-break"></div>
+    <h2>18. Folder & File Sharing</h2>
+    
+    <p>The platform provides <strong>hierarchical folder management</strong> and <strong>secure file sharing</strong> capabilities.</p>
+
+    <h3>18.1 Folder Management</h3>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/folders</code></td>
+            <td>Create folder</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/folders</code></td>
+            <td>List folders (by parent)</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/folders/tree</code></td>
+            <td>Get full folder tree</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/folders/contents</code></td>
+            <td>Get folder contents (subfolders + files)</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/folders/{id}</code></td>
+            <td>Get folder details</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-warning">PUT</span></td>
+            <td><code>/folders/{id}</code></td>
+            <td>Update folder (rename)</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/folders/{id}/move</code></td>
+            <td>Move folder to new parent</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">DELETE</span></td>
+            <td><code>/folders/{id}</code></td>
+            <td>Delete folder (recursive)</td>
+        </tr>
+    </table>
+
+    <h3>18.2 File Sharing</h3>
+    <div class="box">
+        <pre>
+POST /api/v1/file/share/{file_id}
+Authorization: Bearer {token}
+
+{
+  "share_type": "link",           // "link" or "email"
+  "expires_in_days": 7,           // Optional expiration
+  "password": "secret123",        // Optional password protection
+  "permissions": ["view", "download"]
+}
+
+Response:
+{
+  "share_id": "abc123",
+  "share_url": "https://localhost:9443/s/abc123",
+  "expires_at": "2026-01-11T00:00:00Z",
+  "password_protected": true
+}
+        </pre>
+    </div>
+
+    <h3>18.3 Virus Scanner Health</h3>
+    <div class="box">
+        <pre>
+GET /api/v1/file/virus-scanner/health
+
+{
+  "status": "healthy",
+  "clamav_version": "1.0.0",
+  "database_version": "26789",
+  "last_update": "2026-01-04T00:00:00Z"
+}
+        </pre>
+    </div>
+
+    <h3>18.4 MCP Document Index</h3>
+    <p>Model Context Protocol endpoints for document indexing and AI-powered search.</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/mcp/index/{file_id}</code></td>
+            <td>Index a file for AI search</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-danger">DELETE</span></td>
+            <td><code>/mcp/index/{file_id}</code></td>
+            <td>Remove file from index</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/mcp/index/stats</code></td>
+            <td>Get index statistics</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/mcp/tools</code></td>
+            <td>List available MCP tools</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/mcp/tools/call</code></td>
+            <td>Execute an MCP tool</td>
+        </tr>
+    </table>
+
+    <h3>18.5 ML Pipeline Feedback</h3>
+    <p>Feedback endpoints for the incremental ML pipeline (separate from SQL chatbot feedback).</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/feedback/predict</code></td>
+            <td>Record a prediction</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/feedback/outcome/{id}</code></td>
+            <td>Record actual outcome</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/feedback/complete</code></td>
+            <td>Record full feedback</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/feedback/readiness</code></td>
+            <td>Check training readiness</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/feedback/train</code></td>
+            <td>Trigger model training</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/feedback/stats</code></td>
+            <td>Get feedback statistics</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/feedback/history</code></td>
+            <td>Get feedback history</td>
+        </tr>
+    </table>
+
+    <h3>18.6 Model Versioning Quick Access</h3>
+    <p>Shortcut endpoints for common model operations.</p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Description</th>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/models/router/status</code></td>
+            <td>Learned Router status</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/models/router/rollback</code></td>
+            <td>Rollback Learned Router</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/models/incremental/status</code></td>
+            <td>Incremental Model status</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/models/incremental/rollback</code></td>
+            <td>Rollback Incremental Model</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-success">GET</span></td>
+            <td><code>/models/cost/status</code></td>
+            <td>Cost Optimizer status</td>
+        </tr>
+        <tr>
+            <td><span class="badge badge-primary">POST</span></td>
+            <td><code>/models/cost/rollback</code></td>
+            <td>Rollback Cost Optimizer</td>
+        </tr>
+    </table>
+
+    <!-- COMPLETE API SUMMARY -->
+    <div class="page-break"></div>
+    <h2>Complete API Summary</h2>
+    
+    <p>Total endpoints documented: <strong>100+</strong></p>
+    
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Endpoint Count</th>
+            <th>Auth Required</th>
+            <th>Admin Only</th>
+        </tr>
+        <tr>
+            <td>Authentication</td>
+            <td>8</td>
+            <td>Partial</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>File Management</td>
+            <td>12</td>
+            <td>Yes</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Folder Management</td>
+            <td>8</td>
+            <td>Yes</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Organizations</td>
+            <td>10</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+        <tr>
+            <td>Users</td>
+            <td>5</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+        <tr>
+            <td>AI Chatbot</td>
+            <td>16</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+        <tr>
+            <td>Infrastructure</td>
+            <td>8</td>
+            <td>Yes</td>
+            <td>Yes</td>
+        </tr>
+        <tr>
+            <td>ML Pipeline</td>
+            <td>15</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+        <tr>
+            <td>Model Versioning</td>
+            <td>12</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+        <tr>
+            <td>MCP Document Chat</td>
+            <td>7</td>
+            <td>Yes</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Keycloak</td>
+            <td>20+</td>
+            <td>Yes</td>
+            <td>Partial</td>
+        </tr>
+    </table>
+
     <footer>
         <p>📁 File Management Platform - Technical Documentation</p>
-        <p>Generated: January 2026 | Version 2.0.0</p>
-        <p>© 2026 - Enterprise Document Intelligence with Incremental ML & AI Chatbot</p>
+        <p>Generated: January 2026 | Version 3.0.0</p>
+        <p>© 2026 - Enterprise Document Intelligence with Incremental ML, AI Chatbot, RAG & Auto-Learn</p>
     </footer>
 
 </body>
