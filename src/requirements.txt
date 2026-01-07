@@ -59,6 +59,10 @@ structlog>=24.0.0  # Required by DSPy
 # Without Redis, every request hits the database directly
 redis>=5.0.0  # High-performance caching layer
 
+# Fast serialization for <10ms cached responses
+msgpack>=1.0.0  # 5x faster than JSON serialization
+orjson>=3.9.0  # 10x faster JSON response encoding
+
 # Embedding model for hybrid intent classification (all-MiniLM-L6-v2)
 # Using newer version compatible with huggingface_hub
 sentence-transformers==3.0.1

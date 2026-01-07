@@ -25,6 +25,27 @@ logger = logging.getLogger(__name__)
 class FileHandler(BaseHandler[FileService]):
     def __init__(self, service: FileService) -> None:
         super().__init__(service=service)
+        try:
+            from infrastructure.fast_cache import fast_cache
+            self.cache = fast_cache  # L1 (memory) + L2 (Redis) cache
+        except ImportError:
+            self.cache = None
+
+    async def _cache_get(self, key: str):
+        if not self.cache:
+            return None
+        try:
+            return await self.cache.get(key)
+        except Exception:
+            return None
+
+    async def _cache_set(self, key: str, value, ttl: int = 300):
+        if not self.cache:
+            return
+        try:
+            await self.cache.set(key, value, ttl=ttl)
+        except Exception:
+            return
 
     async def upload_initialize(self):
         upload_id = await self.service.upload_initialize()
@@ -183,16 +204,28 @@ class FileHandler(BaseHandler[FileService]):
             return self.response.error(ErrorResponse(message=exception.message), status=exception.status)
 
     async def get_files_by_appointment(self, appointment_id: str) -> JSONResponse:
+        cache_key = f"files:appointment:{appointment_id}"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=cached))
+
         files = await self.service.get_files_by_appointment(appointment_id)
         files_response = []
         for file in files:
             download_url = await self.service.get_download_link(file)
             file_resp = FileResponseDTO.from_orm(file)
             file_resp.download_url = download_url
-            files_response.append(file_resp)
+            files_response.append(file_resp.dict())
+
+        await self._cache_set(cache_key, files_response)
         return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
 
     async def list_all_files(self, user_id: str) -> JSONResponse:
+        cache_key = f"files:user:{user_id}"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=cached))
+
         file_tuples = await self.service.list_all_files(user_id)
         files_response = []
         for file, appointment_name in file_tuples:
@@ -209,11 +242,18 @@ class FileHandler(BaseHandler[FileService]):
                 file_resp.user_id = file.user.id
                 file_resp.user_name = file.user.name
                 file_resp.user_email = file.user.email
-            files_response.append(file_resp)
+            files_response.append(file_resp.dict())
+
+        await self._cache_set(cache_key, files_response)
         return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
 
     async def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> JSONResponse:
         """List all files across all organizations (for platform admin)."""
+        cache_key = f"files:platform:skip={skip}:limit={limit}"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=cached))
+
         files = await self.service.list_all_platform_files(skip, limit)
         files_response = []
         for file in files:
@@ -229,18 +269,27 @@ class FileHandler(BaseHandler[FileService]):
                 file_resp.user_id = file.user.id
                 file_resp.user_name = file.user.name
                 file_resp.user_email = file.user.email
-            files_response.append(file_resp)
+            files_response.append(file_resp.dict())
+
+        await self._cache_set(cache_key, files_response)
         return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
 
     async def list_files_by_organization(self, organization_id: str, folder_id: str = None) -> JSONResponse:
         """List all files for an organization."""
+        cache_key = f"files:org:{organization_id}:folder:{folder_id or 'root'}"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=cached))
+
         files = await self.service.list_files_by_organization(organization_id, folder_id)
         files_response = []
         for file in files:
             download_url = await self.service.get_download_link(file)
             file_resp = FileResponseDTO.from_orm(file)
             file_resp.download_url = download_url
-            files_response.append(file_resp)
+            files_response.append(file_resp.dict())
+
+        await self._cache_set(cache_key, files_response)
         return self.response.success(content=SuccessResponse[list[FileResponseDTO]](data=files_response))
 
     async def delete_file(self, file_id: str) -> JSONResponse:

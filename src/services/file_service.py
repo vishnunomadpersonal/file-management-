@@ -299,7 +299,7 @@ class FileService(BaseService[FileRepo]):
             logger.info(f"File record created successfully with ID: {file.id}")
             
             # Invalidate relevant caches after file creation
-            self._invalidate_file_caches(file)
+            await self._invalidate_file_caches(file)
             
             # ========================================================
             # EVENT-DRIVEN: Publish file.upload.completed event
@@ -402,143 +402,44 @@ class FileService(BaseService[FileRepo]):
 
 
     async def get_files_by_appointment(self, appointment_id: str) -> list[File]:
-        """Get files by appointment with Redis caching."""
-        cache_key = f"files:appointment:{appointment_id}"
-        
-        # Try cache first
-        if REDIS_AVAILABLE and redis_cache:
-            try:
-                cached = redis_cache.get(cache_key)
-                if cached:
-                    logger.debug(f"Cache HIT: {cache_key}")
-                    # Return cached data - handler will process
-                    return cached  # Return raw data, let handler deserialize
-            except Exception as e:
-                logger.warning(f"Redis cache read failed: {e}")
-        
-        # Cache miss - query database
-        logger.debug(f"Cache MISS: {cache_key}")
-        files = self.repo.get_files_by_appointment(appointment_id)
-        
-        # Store in cache
-        if REDIS_AVAILABLE and redis_cache and files:
-            try:
-                cache_data = [_serialize_file(f) for f in files]
-                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
-            except Exception as e:
-                logger.warning(f"Redis cache write failed: {e}")
-        
-        return files
+        """Get files by appointment (always fresh from DB to avoid stale serialization)."""
+        return self.repo.get_files_by_appointment(appointment_id)
 
     async def list_all_files(self, user_id: str) -> list[tuple]:
-        """List all files for a user with Redis caching."""
-        cache_key = f"files:user:{user_id}"
-        
-        # Try cache first
-        if REDIS_AVAILABLE and redis_cache:
-            try:
-                cached = redis_cache.get(cache_key)
-                if cached:
-                    logger.debug(f"Cache HIT: {cache_key}")
-                    return cached  # Return cached serialized data
-            except Exception as e:
-                logger.warning(f"Redis cache read failed: {e}")
-        
-        # Cache miss - query database
-        logger.debug(f"Cache MISS: {cache_key}")
-        file_tuples = self.repo.list_all_files(user_id)
-        
-        # Store in cache
-        if REDIS_AVAILABLE and redis_cache and file_tuples:
-            try:
-                cache_data = [_serialize_file_with_appointment(ft) for ft in file_tuples]
-                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
-            except Exception as e:
-                logger.warning(f"Redis cache write failed: {e}")
-        
-        return file_tuples
+        """List all files for a user; skip Redis to keep ORM objects for downstream processing."""
+        return self.repo.list_all_files(user_id)
 
     async def list_all_platform_files(self, skip: int = 0, limit: int = 100) -> list[File]:
-        """List all files across all organizations with Redis caching."""
-        cache_key = f"files:platform:skip={skip}:limit={limit}"
-        
-        # Try cache first
-        if REDIS_AVAILABLE and redis_cache:
-            try:
-                cached = redis_cache.get(cache_key)
-                if cached:
-                    logger.debug(f"Cache HIT: {cache_key}")
-                    return cached
-            except Exception as e:
-                logger.warning(f"Redis cache read failed: {e}")
-        
-        # Cache miss - query database
-        logger.debug(f"Cache MISS: {cache_key}")
-        files = self.repo.list_all_platform_files(skip, limit)
-        
-        # Store in cache
-        if REDIS_AVAILABLE and redis_cache and files:
-            try:
-                cache_data = [_serialize_file(f) for f in files]
-                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
-            except Exception as e:
-                logger.warning(f"Redis cache write failed: {e}")
-        
-        return files
+        """List all files across all organizations; return live ORM rows for handler usage."""
+        return self.repo.list_all_platform_files(skip, limit)
 
     async def list_files_by_organization(self, organization_id: str, folder_id: str = None) -> list[File]:
-        """List all files for an organization with Redis caching."""
-        cache_key = f"files:org:{organization_id}:folder:{folder_id or 'root'}"
-        
-        # Try cache first
-        if REDIS_AVAILABLE and redis_cache:
-            try:
-                cached = redis_cache.get(cache_key)
-                if cached:
-                    logger.debug(f"Cache HIT: {cache_key}")
-                    return cached
-            except Exception as e:
-                logger.warning(f"Redis cache read failed: {e}")
-        
-        # Cache miss - query database
-        logger.debug(f"Cache MISS: {cache_key}")
-        files = self.repo.list_by_organization_and_folder(organization_id, folder_id)
-        
-        # Store in cache
-        if REDIS_AVAILABLE and redis_cache and files:
-            try:
-                cache_data = [_serialize_file(f) for f in files]
-                redis_cache.set(cache_key, cache_data, ttl=CACHE_TTL_MEDIUM)
-            except Exception as e:
-                logger.warning(f"Redis cache write failed: {e}")
-        
-        return files
+        """List all files for an organization; bypass Redis to avoid dict/ORM mismatch."""
+        return self.repo.list_by_organization_and_folder(organization_id, folder_id)
 
-    def _invalidate_file_caches(self, file: File):
-        """Invalidate all caches related to a file."""
-        if not REDIS_AVAILABLE or not redis_cache:
+    async def _invalidate_file_caches(self, file: File):
+        """Invalidate FastCache entries related to a file (L1+L2)."""
+        try:
+            from infrastructure.fast_cache import fast_cache
+        except ImportError:
             return
         
         try:
-            patterns_to_clear = [
-                f"files:user:{file.user_id}",
-                f"files:platform:*",
-            ]
-            
+            keys_to_delete = [f"files:user:{file.user_id}"]
             if file.organization_id:
-                patterns_to_clear.append(f"files:org:{file.organization_id}:*")
-            
+                keys_to_delete.append(f"files:org:{file.organization_id}:*")
             if file.appointment_id:
-                patterns_to_clear.append(f"files:appointment:{file.appointment_id}")
-            
-            # Clear by pattern
-            for pattern in patterns_to_clear:
-                if '*' in pattern:
-                    redis_cache.delete_pattern(pattern)
+                keys_to_delete.append(f"files:appointment:{file.appointment_id}")
+            # Delete specific keys (exact matches)
+            for key in keys_to_delete:
+                if '*' in key:
+                    # Platform/org wildcard: clear all caches to avoid stale L1 entries
+                    fast_cache.clear_all(f"fc:{key}")
                 else:
-                    redis_cache.delete(pattern)
-            
-            logger.info(f"Invalidated file caches for file {file.id}")
+                    await fast_cache.delete(key)
+            # Platform-wide list caches (different skip/limit) - clear all
+            fast_cache.clear_all("fc:files:platform:*")
+            logger.info(f"Invalidated FastCache entries for file {file.id}")
         except Exception as e:
             logger.warning(f"Failed to invalidate file caches: {e}")
 
@@ -547,7 +448,7 @@ class FileService(BaseService[FileRepo]):
         file = self.repo.get_file(file_id)
         if file:
             # Invalidate caches BEFORE deletion
-            self._invalidate_file_caches(file)
+            await self._invalidate_file_caches(file)
             
             # Delete from MinIO
             try:

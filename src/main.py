@@ -1,5 +1,15 @@
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+
+# Use ORJSONResponse for 10x faster JSON serialization
+try:
+    from fastapi.responses import ORJSONResponse
+    DEFAULT_RESPONSE_CLASS = ORJSONResponse
+    ORJSON_AVAILABLE = True
+except ImportError:
+    DEFAULT_RESPONSE_CLASS = JSONResponse
+    ORJSON_AVAILABLE = False
+
 from api.routes import (
     file, appointment, user, pipeline, auth, mcp, 
     model_versioning, feedback, keycloak_auth, keycloak_users
@@ -66,8 +76,14 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
         title="File Management API",
         description="Enterprise-grade multi-tenant file management system",
-        version="2.0.0"
+        version="2.0.0",
+        default_response_class=DEFAULT_RESPONSE_CLASS  # ORJSONResponse for <10ms responses
     )
+    
+    if ORJSON_AVAILABLE:
+        logger.info("⚡ ORJSONResponse enabled (10x faster JSON serialization)")
+    else:
+        logger.warning("⚠️ ORJSONResponse not available, using standard JSONResponse")
 
     # Honor X-Forwarded-Proto/For from Caddy so generated redirects use https
     app.add_middleware(ProxyHeadersMiddleware)
@@ -137,7 +153,29 @@ def create_application() -> FastAPI:
         response = await call_next(request)
         process_time = time.time() - start_time
         response.headers["X-Process-Time"] = str(process_time)
+        # Log slow requests (> 50ms)
+        if process_time > 0.05:
+            logger.warning(f"⚠️ Slow request: {request.method} {request.url.path} took {process_time*1000:.1f}ms")
         return response
+    
+    # FastCache stats endpoint
+    @app.get("/cache/stats", tags=["Cache"])
+    async def get_cache_stats():
+        """
+        Get FastCache performance statistics.
+        
+        Returns L1 (memory) and L2 (Redis) cache hit rates and performance metrics.
+        Target: >80% L1 hit rate for <10ms response times.
+        """
+        try:
+            from infrastructure.fast_cache import fast_cache
+            return {
+                "status": "ok",
+                "fast_cache": fast_cache.get_stats(),
+                "orjson_enabled": ORJSON_AVAILABLE
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     return app
 
