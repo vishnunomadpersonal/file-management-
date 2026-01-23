@@ -72,3 +72,13 @@ sentence-transformers==3.0.1
 docker==7.0.0
 urllib3<2.0.0
 requests<2.32.0
+
+# ============================================================================
+# Self-Healing AI System (Lightweight - no heavy dependencies)
+# ============================================================================
+# Uses existing NVIDIA LangChain integration for intelligent error detection
+# and fixing. The self-healing system uses:
+# - Rule-based error detection with ML-assisted analysis
+# - Automatic pattern learning and fix generation
+# - No CrewAI dependency (incompatible with current pydantic/openai versions)
+langchain-openai

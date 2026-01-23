@@ -5,11 +5,16 @@ Production-ready Text-to-SQL implementation using LangChain's SQL toolkit.
 Includes safety, access control, and natural language responses.
 """
 
+import os
 import logging
 import warnings
 from typing import Dict, Any, Optional, List
 from sqlalchemy import create_engine, text, MetaData, inspect
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Suppress LangChain deprecation warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="langchain")
@@ -201,16 +206,35 @@ class LangChainSQLAgent:
         """Initialize LLM based on provider configuration."""
         import os
         
-        # Check for NVIDIA API key first (auto mode or explicit nvidia)
+        # Check API keys
         nvidia_api_key = os.getenv("NVIDIA_API_KEY")
-        llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        llm_provider = os.getenv("LLM_PROVIDER", "auto").lower()
         
-        # Auto mode: use NVIDIA if key exists
-        if llm_provider == "auto" and nvidia_api_key:
-            llm_provider = "nvidia"
+        # Auto mode: prefer OpenAI > NVIDIA > Ollama
+        if llm_provider == "auto":
+            if openai_api_key:
+                llm_provider = "openai"
+            elif nvidia_api_key:
+                llm_provider = "nvidia"
+            else:
+                llm_provider = "ollama"
         
-        if llm_provider == "nvidia" and nvidia_api_key:
-            # Use NVIDIA NIM API
+        # OpenAI - Best quality for SQL generation
+        if llm_provider == "openai" and openai_api_key:
+            from langchain_openai import ChatOpenAI
+            openai_model = os.getenv("OPENAI_MODEL", "gpt-4o")  # Best model
+            self.llm = ChatOpenAI(
+                api_key=openai_api_key,
+                model=openai_model,
+                temperature=0,  # Deterministic for SQL
+                timeout=60
+            )
+            self.llm_provider = "openai"
+            logger.info(f"OpenAI LLM initialized: {openai_model}")
+        
+        # NVIDIA NIM
+        elif llm_provider == "nvidia" and nvidia_api_key:
             from .providers.nvidia_provider import NvidiaLangChainLLM
             nvidia_model = os.getenv("NVIDIA_MODEL", "qwen/qwen3-next-80b-a3b-instruct")
             self.llm = NvidiaLangChainLLM(
@@ -220,8 +244,9 @@ class LangChainSQLAgent:
             )
             self.llm_provider = "nvidia"
             logger.info(f"NVIDIA NIM LLM initialized: {nvidia_model}")
+        
+        # Default to Ollama
         else:
-            # Default to Ollama
             self.llm = ChatOllama(
                 base_url=self.ollama_base_url,
                 model=self.model,

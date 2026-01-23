@@ -93,6 +93,31 @@ INFRA_WORDS = {
     'health', 'status', 'running', 'stopped', 'restart',
 }
 
+# Navigation words - should NOT be corrected
+NAVIGATION_WORDS = {
+    'check', 'can', 'see', 'go', 'take', 'navigate', 'open', 'logs', 'log',
+    'application', 'system', 'dashboard', 'page', 'settings', 'home',
+    'help', 'about', 'profile', 'notifications', 'quarantine', 'analytics',
+}
+
+# Common English words that should NOT be corrected
+COMMON_ENGLISH = {
+    # Verbs
+    'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'done',
+    'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+    'need', 'want', 'like', 'know', 'think', 'see', 'make', 'take', 'go', 'get',
+    # Prepositions
+    'to', 'for', 'in', 'on', 'at', 'by', 'with', 'from', 'of', 'about',
+    # Articles/Pronouns
+    'the', 'this', 'that', 'these', 'those', 'it', 'its',
+    'my', 'your', 'our', 'their', 'his', 'her',
+    'me', 'you', 'us', 'them', 'him', 'her',
+    # Other
+    'and', 'or', 'but', 'so', 'if', 'then', 'else',
+    'please', 'thanks', 'thank', 'hello', 'hi', 'hey',
+}
+
 # Combine all vocabularies
 ALL_KNOWN_WORDS: Set[str] = (
     ENTITY_WORDS | 
@@ -100,7 +125,9 @@ ALL_KNOWN_WORDS: Set[str] = (
     DESCRIPTOR_WORDS | 
     TIME_WORDS | 
     QUESTION_WORDS |
-    INFRA_WORDS
+    INFRA_WORDS |
+    NAVIGATION_WORDS |
+    COMMON_ENGLISH
 )
 
 # Common typo patterns (explicit mappings for very common typos)

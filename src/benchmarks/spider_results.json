@@ -1,0 +1,84 @@
+{
+  "total_examples": 50,
+  "exact_match_count": 6,
+  "exact_match_accuracy": 12.0,
+  "errors": 0,
+  "elapsed_seconds": 47.16,
+  "examples_per_second": 1.06,
+  "component_accuracy": {
+    "select": 1.0,
+    "from": 1.0,
+    "where": 0.94,
+    "group_by": 0.96,
+    "having": 1.0,
+    "order_by": 0.94,
+    "limit": 0.94,
+    "join": 0.72
+  },
+  "difficulty_breakdown": {
+    "unknown": 0.12
+  },
+  "sample_results": [
+    {
+      "question": "How many singers do we have?",
+      "gold": "SELECT count(*) FROM singer",
+      "predicted": "SELECT COUNT(*) FROM singer",
+      "exact_match": true
+    },
+    {
+      "question": "What is the total number of singers?",
+      "gold": "SELECT count(*) FROM singer",
+      "predicted": "SELECT COUNT(*) FROM singer",
+      "exact_match": true
+    },
+    {
+      "question": "Show name, country, age for all singers ordered by age from the oldest to the youngest.",
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "predicted": "SELECT name, country, age FROM singer ORDER BY age DESC",
+      "exact_match": false
+    },
+    {
+      "question": "What are the names, countries, and ages for every singer in descending order of age?",
+      "gold": "SELECT name ,  country ,  age FROM singer ORDER BY age DESC",
+      "predicted": "SELECT name, country, age FROM singer ORDER BY age DESC",
+      "exact_match": false
+    },
+    {
+      "question": "What is the average, minimum, and maximum age of all singers from France?",
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "predicted": "SELECT AVG(age) AS average_age, MIN(age) AS minimum_age, MAX(age) AS maximum_age FROM singer WHERE country = 'France'",
+      "exact_match": false
+    },
+    {
+      "question": "What is the average, minimum, and maximum age for all French singers?",
+      "gold": "SELECT avg(age) ,  min(age) ,  max(age) FROM singer WHERE country  =  'France'",
+      "predicted": "SELECT AVG(age) AS average_age, MIN(age) AS minimum_age, MAX(age) AS maximum_age FROM singer WHERE nationality = 'French'",
+      "exact_match": false
+    },
+    {
+      "question": "Show the name and the release year of the song by the youngest singer.",
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "predicted": "SELECT s.name, s.release_year FROM song s JOIN singer si ON s.singer_id = si.id ORDER BY si.age ASC LIMIT 1",
+      "exact_match": false
+    },
+    {
+      "question": "What are the names and release years for all the songs of the youngest singer?",
+      "gold": "SELECT song_name ,  song_release_year FROM singer ORDER BY age LIMIT 1",
+      "predicted": "SELECT s.song_name, s.release_year FROM song s JOIN singer si ON s.singer_id = si.singer_id WHERE si.age = (SELECT MIN(age) FROM singer)",
+      "exact_match": false
+    },
+    {
+      "question": "What are all distinct countries where singers above age 20 are from?",
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "predicted": "SELECT DISTINCT country FROM singer WHERE age > 20",
+      "exact_match": true
+    },
+    {
+      "question": "What are  the different countries with singers above age 20?",
+      "gold": "SELECT DISTINCT country FROM singer WHERE age  >  20",
+      "predicted": "SELECT DISTINCT country FROM singer WHERE age > 20",
+      "exact_match": true
+    }
+  ],
+  "adapter": "NVIDIA NIM (Qwen 80B)"
+}

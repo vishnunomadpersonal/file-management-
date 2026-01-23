@@ -57,6 +57,9 @@ class ChatbotConfig:
     max_history_length: int  # Max messages to keep in context
     system_prompt: str
     
+    # Self-healing settings
+    self_healing_enabled: bool
+    
     @classmethod
     def from_env(cls) -> 'ChatbotConfig':
         """Load configuration from environment variables."""
@@ -99,6 +102,9 @@ class ChatbotConfig:
             # General
             max_history_length=int(os.environ.get('CHATBOT_MAX_HISTORY', '20')),
             system_prompt=os.environ.get('CHATBOT_SYSTEM_PROMPT', DEFAULT_SYSTEM_PROMPT),
+            
+            # Self-healing
+            self_healing_enabled=os.environ.get('CHATBOT_SELF_HEALING', 'true').lower() == 'true',
         )
     
     @property

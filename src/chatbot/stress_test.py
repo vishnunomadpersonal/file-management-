@@ -333,6 +333,17 @@ async def run_stress_test(categories: List[str] = None, max_per_category: int = 
             result = await run_single_test(query, token)
             success, reason = evaluate_response(query, category, expected, result)
             
+            # Always show the response for verification
+            response_text = result.get("response", "")
+            if response_text:
+                # Truncate long responses but show enough to verify
+                if len(response_text) > 200:
+                    print(f"   📝 Response: {response_text[:200]}...")
+                else:
+                    print(f"   📝 Response: {response_text}")
+            else:
+                print(f"   📝 Response: [No response]")
+            
             if success:
                 print(f"   ✅ PASS: {reason}")
                 print(f"   ⏱️  Time: {result.get('elapsed_ms', 0)}ms | Route: {result.get('routing', 'N/A')}")
@@ -340,8 +351,6 @@ async def run_stress_test(categories: List[str] = None, max_per_category: int = 
                 total_pass += 1
             else:
                 print(f"   ❌ FAIL: {reason}")
-                if result.get("response"):
-                    print(f"   📝 Response: {result.get('response', '')[:100]}...")
                 cat_fail += 1
                 total_fail += 1
             

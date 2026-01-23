@@ -349,6 +349,389 @@ async def flush_cache(
 
 
 # ============================================================================
+# INTELLIGENT TYPO CORRECTOR ENDPOINTS
+# ============================================================================
+
+class TypoCorrectionRequest(BaseModel):
+    """Request to correct a query."""
+    query: str = Field(..., min_length=1, max_length=500, description="Query to correct")
+    use_ai: bool = Field(False, description="Use AI for ambiguous corrections")
+
+
+class LearnCorrectionRequest(BaseModel):
+    """Request to learn a new correction."""
+    typo: str = Field(..., min_length=1, max_length=100, description="The typo")
+    correction: str = Field(..., min_length=1, max_length=100, description="The correct word")
+
+
+class AddVocabularyRequest(BaseModel):
+    """Request to add words to vocabulary."""
+    words: List[str] = Field(..., min_items=1, description="Words to add")
+
+
+@router.get("/typo/stats")
+async def get_typo_corrector_stats(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get intelligent typo corrector statistics.
+    
+    Shows vocabulary size, explicit corrections, learned corrections, and AI status.
+    """
+    try:
+        from chatbot.intelligent_typo_corrector import get_intelligent_corrector
+        
+        corrector = get_intelligent_corrector()
+        stats = corrector.get_stats()
+        
+        return {
+            "success": True,
+            "data": {
+                **stats,
+                "description": "Intelligent AI-powered typo corrector",
+                "methods": {
+                    "vocabulary": "Known domain words (fastest, 0ms)",
+                    "explicit": "Known typo→correction mappings (~0ms)",
+                    "learned": "AI-learned corrections from feedback (~0ms)",
+                    "fuzzy": "Similarity matching for unknown words (~1ms)",
+                    "ai": "LLM-powered contextual correction (~500ms)"
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get typo corrector stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get typo corrector stats: {str(e)}"
+        )
+
+
+@router.post("/typo/correct")
+async def correct_query(
+    request: TypoCorrectionRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Correct a query for typos using intelligent correction.
+    
+    - Fast mode (default): Uses vocabulary + fuzzy matching (~1ms)
+    - AI mode: Also uses LLM for ambiguous cases (~500ms)
+    """
+    try:
+        from chatbot.intelligent_typo_corrector import get_intelligent_corrector
+        
+        corrector = get_intelligent_corrector()
+        
+        if request.use_ai:
+            result = await corrector.correct_query_async(request.query)
+        else:
+            result = corrector.correct_query_sync(request.query)
+        
+        return {
+            "success": True,
+            "data": {
+                "original": result.original,
+                "corrected": result.corrected,
+                "was_corrected": result.was_corrected,
+                "method": result.method,
+                "confidence": result.confidence,
+                "corrections": result.corrections,
+                "processing_time_ms": result.processing_time_ms
+            }
+        }
+    except Exception as e:
+        logger.error(f"Typo correction failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Typo correction failed: {str(e)}"
+        )
+
+
+@router.post("/typo/learn")
+async def learn_typo_correction(
+    request: LearnCorrectionRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Teach the corrector a new typo→correction mapping.
+    
+    Learned corrections are used in future queries.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can teach the typo corrector"
+        )
+    
+    try:
+        from chatbot.intelligent_typo_corrector import get_intelligent_corrector
+        
+        corrector = get_intelligent_corrector()
+        corrector.learn_correction(request.typo, request.correction)
+        
+        return {
+            "success": True,
+            "message": f"Learned: '{request.typo}' → '{request.correction}'",
+            "stats": corrector.get_stats()
+        }
+    except Exception as e:
+        logger.error(f"Failed to learn correction: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to learn correction: {str(e)}"
+        )
+
+
+@router.post("/typo/vocabulary")
+async def add_to_vocabulary(
+    request: AddVocabularyRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Add new words to the typo corrector vocabulary.
+    
+    Words in vocabulary won't be "corrected" to something else.
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can modify vocabulary"
+        )
+    
+    try:
+        from chatbot.intelligent_typo_corrector import get_intelligent_corrector
+        
+        corrector = get_intelligent_corrector()
+        corrector.add_to_vocabulary(request.words)
+        
+        return {
+            "success": True,
+            "message": f"Added {len(request.words)} words to vocabulary",
+            "words_added": request.words,
+            "stats": corrector.get_stats()
+        }
+    except Exception as e:
+        logger.error(f"Failed to add vocabulary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add vocabulary: {str(e)}"
+        )
+
+
+# ============================================================================
+# SELF-HEALING AI ENDPOINTS
+# ============================================================================
+
+@router.get("/healing/stats")
+async def get_healing_stats(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get self-healing AI system statistics.
+    
+    Shows errors detected, fixes applied, patterns learned, and pending reviews.
+    """
+    try:
+        from chatbot.self_healing.advanced_healing import get_healer
+        
+        healer = get_healer()
+        stats = healer.get_stats()
+        
+        return {
+            "success": True,
+            "data": {
+                **stats,
+                "description": "Advanced self-healing AI that learns from mistakes",
+                "capabilities": [
+                    "Auto-detect navigation vs data query mismatches",
+                    "Generate and apply regex patterns automatically",
+                    "Learn exclusion patterns to prevent routing errors",
+                    "Queue complex fixes for human review"
+                ]
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to get healing stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get healing stats: {str(e)}"
+        )
+
+
+@router.get("/healing/pending")
+async def get_pending_fixes(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get pending fixes that need human review.
+    
+    These are fixes that were detected but couldn't be auto-applied
+    (low confidence or complex cases).
+    """
+    try:
+        from chatbot.self_healing.advanced_healing import get_healer
+        
+        healer = get_healer()
+        pending = healer.get_pending_fixes()
+        
+        return {
+            "success": True,
+            "count": len(pending),
+            "fixes": pending
+        }
+    except Exception as e:
+        logger.error(f"Failed to get pending fixes: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get pending fixes: {str(e)}"
+        )
+
+
+@router.post("/healing/approve/{fix_index}")
+async def approve_pending_fix(
+    fix_index: int,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Approve and apply a pending fix.
+    
+    Requires super_admin role.
+    """
+    if user.role.value != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can approve fixes"
+        )
+    
+    try:
+        from chatbot.self_healing.advanced_healing import get_healer
+        
+        healer = get_healer()
+        success = healer.approve_pending_fix(fix_index)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Fix #{fix_index} approved and applied",
+                "stats": healer.get_stats()
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Fix #{fix_index} not found"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to approve fix: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to approve fix: {str(e)}"
+        )
+
+
+@router.get("/healing/patterns")
+async def get_learned_patterns(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get all patterns learned by the self-healing system.
+    
+    Shows navigation patterns, exclusion patterns, and training examples.
+    """
+    try:
+        from chatbot.self_healing.advanced_healing import get_healer
+        
+        healer = get_healer()
+        patterns = healer.patterns_store.get_all()
+        
+        return {
+            "success": True,
+            "count": len(patterns),
+            "patterns": [
+                {
+                    "id": p.id,
+                    "type": p.pattern_type,
+                    "pattern": p.pattern[:100],
+                    "handler": p.target_handler,
+                    "source_query": p.source_query,
+                    "learned_at": p.learned_at,
+                    "applied": p.applied,
+                    "confidence": p.confidence
+                }
+                for p in patterns
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to get learned patterns: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get learned patterns: {str(e)}"
+        )
+
+
+class TestHealingRequest(BaseModel):
+    """Request to test the self-healing detection."""
+    query: str = Field(..., min_length=1, max_length=500)
+    response: str = Field(..., min_length=1, max_length=2000)
+    routing_method: str = Field(default="llm_chat")
+
+
+@router.post("/healing/test")
+async def test_healing_detection(
+    request: TestHealingRequest,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Test the self-healing error detection without applying fixes.
+    
+    Useful for debugging and understanding how the system detects errors.
+    """
+    try:
+        from chatbot.self_healing.advanced_healing import (
+            AdvancedSelfHealingSystem,
+            HealingConfig
+        )
+        
+        # Create a test instance that doesn't auto-apply
+        test_healer = AdvancedSelfHealingSystem(
+            HealingConfig(auto_apply=False)
+        )
+        
+        result = await test_healer.process_response(
+            user_query=request.query,
+            response=request.response,
+            routing_method=request.routing_method,
+            actions=[]
+        )
+        
+        if result:
+            return {
+                "success": True,
+                "error_detected": True,
+                "error_type": result.error_report.error_type.value,
+                "fix_type": result.fix_type.value,
+                "pattern_generated": result.pattern_added,
+                "message": result.message,
+                "confidence": result.error_report.confidence
+            }
+        else:
+            return {
+                "success": True,
+                "error_detected": False,
+                "message": "No error detected - response appears correct"
+            }
+    except Exception as e:
+        logger.error(f"Healing test failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Healing test failed: {str(e)}"
+        )
+
+
+# ============================================================================
 # DSPy PROMPT OPTIMIZER ENDPOINTS
 # ============================================================================
 

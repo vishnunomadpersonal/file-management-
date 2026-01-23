@@ -4,17 +4,23 @@ Hybrid SQL Agent - DSPy + LangChain
 Combines DSPy's automatic prompt optimization with LangChain's SQL execution.
 
 Strategy:
-1. DSPy generates optimized SQL queries (learned from examples)
-2. LangChain handles database connection and query execution
-3. Falls back to pure LangChain if DSPy unavailable
+1. If OpenAI is available: Use LangChain directly (GPT-4o is excellent at SQL)
+2. If Ollama only: DSPy generates optimized SQL queries (learned from examples)
+3. LangChain handles database connection and query execution
+4. Falls back to pure LangChain if DSPy unavailable
 
 This gives you the best of both worlds:
-- DSPy: Automatic prompt tuning, learns from training data
+- OpenAI: Superior intelligence, excellent SQL generation
+- DSPy: Automatic prompt tuning for smaller models
 - LangChain: Reliable DB connection, safety checks, result formatting
 """
 
+import os
 import logging
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +68,17 @@ class HybridSQLAgent:
             model: LLM model name
             use_dspy: Whether to use DSPy optimization (default True)
         """
-        self.use_dspy = use_dspy and DSPY_AVAILABLE
+        # Check if OpenAI is available - if so, skip DSPy (GPT-4o is better)
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        llm_provider = os.getenv("LLM_PROVIDER", "auto").lower()
+        
+        # Disable DSPy when using OpenAI (it's smarter without optimization)
+        if llm_provider == "openai" or (llm_provider == "auto" and openai_api_key):
+            logger.info("OpenAI available - using LangChain directly (skipping DSPy)")
+            self.use_dspy = False
+        else:
+            self.use_dspy = use_dspy and DSPY_AVAILABLE
+        
         self.ollama_base_url = ollama_base_url
         
         # Initialize LangChain agent (always needed for execution)

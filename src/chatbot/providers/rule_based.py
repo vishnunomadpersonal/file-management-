@@ -485,9 +485,9 @@ class RuleBasedProvider(LLMProvider):
             ),
             
             # ========== NAVIGATION ==========
-            # Navigation - Files (expanded patterns)
+            # Navigation - Files (expanded patterns - where I uploaded)
             (
-                re.compile(r'\b(my files?|show files?|view files?|go to files?|open files?|take me to.*files?|navigate.*files?|files? page)\b', re.IGNORECASE),
+                re.compile(r'\b(my files?|show files?|view files?|go to files?|open files?|take me to.*files?|navigate.*files?|files? page|where.*(i |my )?(upload|uploaded|stored|saved)|uploaded files?)\b', re.IGNORECASE),
                 self._handle_navigate_files
             ),
             # Navigation - All Files (admin)
@@ -510,9 +510,14 @@ class RuleBasedProvider(LLMProvider):
                 re.compile(r'\b(dashboard|home|main page|go home|take me to.*dashboard|take me home)\b', re.IGNORECASE),
                 self._handle_navigate_dashboard
             ),
-            # Navigation - Organizations
+            # Navigation - System Logs (MUST be before Organizations - "application logs" shouldn't match "org")
             (
-                re.compile(r'\b(organizations?|orgs?|tenants?|take me to.*org)\b', re.IGNORECASE),
+                re.compile(r'\b(system\s*logs?|audit\s*logs?|application\s*logs?|app\s*logs?|logs?\s*page|show\s*(me\s+)?.*logs?|view\s*.*logs?|check\s*.*logs?|see\s*.*logs?|where\s*.*logs?|take me to.*logs?)\b', re.IGNORECASE),
+                self._handle_navigate_system_logs
+            ),
+            # Navigation - Organizations (fixed: don't match "our" in "our application")
+            (
+                re.compile(r'\b(organizations?|tenants?|take me to\s+(the\s+)?organizations?)\b', re.IGNORECASE),
                 self._handle_navigate_organizations
             ),
             # Navigation - Approvals
@@ -537,14 +542,10 @@ class RuleBasedProvider(LLMProvider):
             ),
             # Navigation - Database
             (
-                re.compile(r'\b(database|db|mysql|take me to.*database)\b', re.IGNORECASE),
+                re.compile(r'\b(databases?|db|mysql|take me to.*database|where.*(check|see|view|find).*databases?)\b', re.IGNORECASE),
                 self._handle_navigate_database
             ),
-            # Navigation - System Logs (must be before Infrastructure to match "system logs" correctly)
-            (
-                re.compile(r'\b(system logs?|audit logs?|logs?|history|take me to.*logs?)\b', re.IGNORECASE),
-                self._handle_navigate_system_logs
-            ),
+            # Navigation - System Logs (MOVED EARLIER - see above before Organizations)
             # Navigation - Infrastructure (includes containers, docker, services status)
             (
                 re.compile(r'\b(infrastructure|infra|servers?|containers?|docker|services?\s*(status|running|up|down|health)|running\s+services?|show.*services?|list.*services?|everything\s*(up|running)|take me to.*infrastructure|minio|rabbitmq)\b', re.IGNORECASE),

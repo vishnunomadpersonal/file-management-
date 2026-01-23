@@ -38,8 +38,13 @@ from .embedding_classifier import classify_with_embeddings, hybrid_classify, pre
 # LLM FALLBACK: Text-to-SQL for complex queries (~30s)
 from .text_to_sql_langchain import get_sql_agent, LangChainSQLAgent
 
-# TYPO CORRECTION: Fix misspellings before routing (~1ms)
-from .typo_corrector import get_typo_corrector, correct_query
+# TYPO CORRECTION: Intelligent AI-powered correction (~1ms sync, ~500ms async with AI)
+from .intelligent_typo_corrector import (
+    get_intelligent_corrector,
+    correct_query_intelligent,
+    correct_query_intelligent_async,
+    IntelligentTypoCorrector
+)
 
 # HYBRID DSPy + LangChain: Automatic prompt optimization (optional)
 try:
@@ -204,6 +209,8 @@ class ChatbotOrchestrator:
         re.compile(r'\b(go to|take me to|navigate to|open|switch to)\s+(the\s+)?(my\s+)?(files?|dashboard|settings|users?|organizations?|approvals?|analytics?|quarantine|security|logs?|team|infrastructure|database|api.?keys?|api.?gateway|platform.?admin|home)\b', re.IGNORECASE),
         re.compile(r'\b(go|take me|navigate)\s+(to\s+)?(the\s+)?(my\s+)?files?\b', re.IGNORECASE),
         re.compile(r'\b(show|open)\s+(me\s+)?(the\s+)?(my\s+)?(files?|dashboard|settings)\s*(page)?\b', re.IGNORECASE),
+        # "where can i check/see/view X" navigation pattern - catches "where can i check this application logs"
+        re.compile(r'\bwhere\s+(can\s+i\s+)?(check|see|view|find|look\s+at)\s+.*(logs?|files?|users?|settings?|dashboard|quarantine|analytics?|infrastructure|database)\b', re.IGNORECASE),
     ]
     
     # DATA QUERY patterns - instant data lookups (rule-based handles with real API calls)
@@ -308,16 +315,72 @@ class ChatbotOrchestrator:
     
     # Complex data queries that need TEXT-TO-SQL (LLM generates SQL dynamically)
     # These are questions that require joining tables, aggregation, or complex filters
+    # HELP/HOW-TO patterns - should go to rule-based, NOT analytics
+    # These ask for instructions, not data queries
+    # NOTE: "can you help me understand how many" is a DATA query, not help!
+    HELP_PATTERNS = [
+        re.compile(r'\bhow\s+(do\s+i|can\s+i|to)\s+(upload|download|delete|share|create|edit|manage|use|navigate|find|search|access)\b', re.IGNORECASE),
+        re.compile(r'\bwhat\s+(is|are)\s+(the\s+)?(step|way|method|process)\b', re.IGNORECASE),
+        # Only match "help" when NOT followed by data keywords
+        re.compile(r'^help$|^help\s+(me|please)$', re.IGNORECASE),
+        re.compile(r'\b(assist|guide|tutorial|instructions?)\b', re.IGNORECASE),
+        # "can you help" alone, but NOT "can you help me understand how many" (that's SQL)
+        re.compile(r'\bcan\s+you\s+(help|explain)$', re.IGNORECASE),
+        re.compile(r'\b(explain|describe)\s+how\s+to\b', re.IGNORECASE),
+    ]
+    
     TEXT_TO_SQL_PATTERNS = [
-        # "Who" questions about users/uploaders
-        re.compile(r'\bwho\s+(uploaded|created|owns?|has|made)\b', re.IGNORECASE),
+        # ===== HIGHEST PRIORITY: "give me/show me/find" data requests =====
+        # "give me" data requests - VERY COMMON USER PATTERN
+        re.compile(r'\b(give|get|show|tell|find)\s+(me\s+)?(all\s+)?(the\s+)?(users?|people|folks)\b.*(upload|file|document|storage)', re.IGNORECASE),
+        re.compile(r'\b(give|get|show|tell|find)\s+(me\s+)?(all\s+)?(the\s+)?(files?|documents?)\b.*(user|upload|belong)', re.IGNORECASE),
+        re.compile(r'\b(give|get|show|tell|find)\s+(me\s+)?(all\s+)?(the\s+)?(users?|people)\b', re.IGNORECASE),  # catch-all for user lists
+        re.compile(r'\b(give|get|find)\s+(me\s+)?(a\s+)?list\b', re.IGNORECASE),  # "give me a list of..."
+        
+        # ===== FILE COUNT FILTER PATTERNS (common edge case) =====
+        # "users/people who uploaded less/more than X files" pattern
+        re.compile(r'\b(users?|people|folks)\b.*(upload|file).*(less|fewer|more|greater|under|over|than|at least|at most)\s*\d+', re.IGNORECASE),
+        re.compile(r'\b(upload|file).*(less|fewer|more|greater|under|over)\s+than\s+\d+', re.IGNORECASE),
+        re.compile(r'\b(less|fewer|more)\s+than\s+(five|ten|three|two|one|twenty|\d+)\s+(files?|uploads?|documents?)', re.IGNORECASE),
+        re.compile(r'\b(had|have|has)\s+(uploaded|created)\s+(less|fewer|more|under|over)\b', re.IGNORECASE),
+        re.compile(r'\b(upload|file)\s*(count|number)\s*(less|fewer|more|under|over|below|above)\b', re.IGNORECASE),
+        
+        # ===== ORGANIZATION/BELONGING QUERIES (common edge case) =====
+        # "which organization they belong to" pattern
+        re.compile(r'\b(which|what)\s+organi[sz]ation\b', re.IGNORECASE),
+        re.compile(r'\bbelong\s+to\b', re.IGNORECASE),
+        re.compile(r'\b(their|which)\s+org(ani[sz]ation)?\b', re.IGNORECASE),
+        re.compile(r'\b(and|with)\s+(their|the)\s+org(ani[sz]ation)?\b', re.IGNORECASE),
+        re.compile(r'\bfrom\s+which\s+org\b', re.IGNORECASE),
+        
+        # ===== USER STATUS + DATA QUERIES (combination patterns) =====
+        # "registered and approved users" pattern
+        re.compile(r'\b(register|approved|active)\s*(and\s*)?(register|approved|active)\s*(users?|people)?', re.IGNORECASE),
+        re.compile(r'\busers?\s+(register|approved|with\s+us)', re.IGNORECASE),
+        re.compile(r'\b(approved|pending|rejected)\s+(users?|people)\s+(who|that|with)\b', re.IGNORECASE),
+        re.compile(r'\busers?\s+who\s+(are\s+)?(approved|pending|registered|active)\b', re.IGNORECASE),
+        
+        # ===== "USERS WHO" / "PEOPLE THAT" PATTERNS =====
+        # "Who" questions about users/uploaders (allow "who had uploaded", "who has uploaded", etc.)
+        re.compile(r'\bwho\s+(had\s+|has\s+|have\s+)?(uploaded|created|owns?|has|made)\b', re.IGNORECASE),
         re.compile(r'\bwho(\'?s|\s+is)\s+(the\s+)?(top|most|biggest|largest)\b', re.IGNORECASE),
+        # "users who uploaded" or "users that uploaded" (subject-first form)
+        re.compile(r'\busers?\s+(who|that)\s+(had\s+|has\s+|have\s+)?(uploaded|created)\b', re.IGNORECASE),
+        re.compile(r'\b(people|folks)\s+(who|that)\s+(had\s+|has\s+|have\s+)?(uploaded|created|registered)\b', re.IGNORECASE),
+        
+        # ===== "CAN YOU" / "COULD YOU" DATA REQUESTS =====
+        re.compile(r'\b(can|could)\s+you\s+(give|get|show|tell|find|list)\b', re.IGNORECASE),
+        re.compile(r'\b(can|could)\s+you\s+(tell|show)\s+me\s+(how\s+many|the|all|which)\b', re.IGNORECASE),
+        
+        # ===== APPROVAL TRACKING QUERIES =====
         # Approval queries - "who approved X", "approved by whom", etc.
         re.compile(r'\bwho\s+approved\b', re.IGNORECASE),
         re.compile(r'\bapproved\s+by\b', re.IGNORECASE),
         re.compile(r'\bapproval.*(details?|info|history)\b', re.IGNORECASE),
         re.compile(r'\bwhen\s+(was|were)\s+.*approved\b', re.IGNORECASE),
         re.compile(r'\b(get|show|find)\s+(me\s+)?(the\s+)?approv', re.IGNORECASE),
+        
+        # ===== STANDARD SQL PATTERNS =====
         # "Which" questions
         re.compile(r'\bwhich\s+(user|org|file|folder)s?\s+(have|has|is|are|uploaded|created)\b', re.IGNORECASE),
         # Rankings/Top N (allow adjectives like "largest", "biggest" between number and entity)
@@ -327,6 +390,8 @@ class ChatbotOrchestrator:
         re.compile(r'\b(last|past|previous)\s+(\d+\s+)?(week|month|day|year)s?\b', re.IGNORECASE),
         re.compile(r'\b(this|current)\s+(week|month|day|year)\b', re.IGNORECASE),
         re.compile(r'\b(since|after|before|between)\s+\d', re.IGNORECASE),
+        # "last N files/uploads/users" patterns
+        re.compile(r'\b(last|recent|latest)\s+(\d+|five|ten|twenty|hundred)\s+(files?|uploads?|users?|documents?)\b', re.IGNORECASE),
         # Aggregations
         re.compile(r'\b(average|avg|total|sum|count|max|min)\s+(file\s*)?size\b', re.IGNORECASE),
         re.compile(r'\b(breakdown|distribution|group)\s+by\b', re.IGNORECASE),
@@ -340,6 +405,11 @@ class ChatbotOrchestrator:
         re.compile(r'\b(how\s+much\s+storage|storage\s+used)\s+by\b', re.IGNORECASE),
         re.compile(r'\bcompare\s+(user|org)s?\b', re.IGNORECASE),
         re.compile(r'\btrends?\s+(in|of|for)\b', re.IGNORECASE),
+        
+        # ===== CATCH-ALL PATTERNS FOR DATA QUERIES =====
+        re.compile(r'\b(users?|people|files?)\s+(with|where|and)\s+', re.IGNORECASE),  # "users with...", "users where..."
+        re.compile(r'\b(all|every)\s+(the\s+)?(users?|people|files?|documents?)\b', re.IGNORECASE),  # "all the users..."
+        re.compile(r'\bhow\s+many\s+(users?|people|files?|documents?|uploads?)\b', re.IGNORECASE),  # "how many users..."
     ]
     
     # Simple greetings - no need to call LLM for these
@@ -351,9 +421,9 @@ class ChatbotOrchestrator:
         re.compile(r'^(greetings|salutations|sup|wassup|whats\s*up|what\'?s\s*up)[\s\!\.\']*$', re.IGNORECASE),
         # Time-based greetings
         re.compile(r'^good\s*(morning|afternoon|evening|day|night)[\s\!\.\']*$', re.IGNORECASE),
-        # Thanks/gratitude
-        re.compile(r'^(thanks|thank\s*you|thx|ty|cheers|much\s*appreciated|appreciate\s*it|ta)[\s\!\.\']*(so\s*much|very\s*much|a\s*lot|a\s*bunch|a\s*ton)?[\s\!\.\',]*$', re.IGNORECASE),
-        re.compile(r'^thank\s*you\s*(so\s*much|very\s*much|a\s*lot|a\s*bunch)[\s\!\.\',]*$', re.IGNORECASE),
+        # Thanks/gratitude - including "thanks for your help", "thanks for the help"
+        re.compile(r'^(thanks|thank\s*you|thx|ty|cheers|much\s*appreciated|appreciate\s*it|ta)[\s\!\.\']*(so\s*much|very\s*much|a\s*lot|a\s*bunch|a\s*ton|for\s+(your|the|all)\s*(help|assistance|info|time))?[\s\!\.\',]*$', re.IGNORECASE),
+        re.compile(r'^thank\s*you\s*(so\s*much|very\s*much|a\s*lot|a\s*bunch|for\s+(your|the)\s*(help|assistance))?[\s\!\.\',]*$', re.IGNORECASE),
         # Farewells
         re.compile(r'^(bye|goodbye|see\s*you|see\s*ya|later|cya|ciao|adios|farewell|peace|peace\s*out)[\s\!\.\']*$', re.IGNORECASE),
         re.compile(r'^(exit|quit|close|end\s*chat|stop|leave)[\s\!\.\']*$', re.IGNORECASE),
@@ -748,6 +818,35 @@ class ChatbotOrchestrator:
         """
         message = message.strip().lower()
         
+        # PRIORITY -1: Check LEARNED exclusions from self-healing system
+        # These are patterns learned from previous mistakes
+        try:
+            if self.check_learned_exclusions(message):
+                logger.debug(f"[LEARNED] Exclusion matched for: {message[:30]}...")
+                return False
+        except Exception:
+            pass  # Non-critical
+        
+        # PRIORITY 0: Navigation exclusions - these should NEVER go to analytics
+        # User wants to GO somewhere, not query data
+        # NOTE: "list my files" should still go to analytics (shows files)
+        # but "my files" alone = navigation, "where can i see files" = navigation
+        navigation_exclusions = [
+            r'\b(take me to|go to|navigate to|open)\s+(my\s+)?files',
+            r'\bwhere\s+(can|do)\s+i\s+(see|find|check|view|go)\b.*files',
+            r'\bfiles\s*(i|that i)\s*(have\s+)?(upload|uploaded|stored|saved)',
+            r'\bwhere.*(i|my)\s*(upload|uploaded|can\s+upload)',
+            r'\bgo\s+to\s+files',
+            r'\bfiles\s+page',
+            r'^my\s+files\s*$',  # ONLY "my files" with nothing else (exact match)
+            # Logs navigation - "where can i check application logs"
+            r'\bwhere\s+(can|do)\s+i\s+(see|find|check|view)\b.*(logs?|system\s*logs?|audit|application\s*logs?)',
+            r'\b(take me to|go to|navigate to|open)\s+(the\s+)?(system\s*)?(logs?|audit)',
+        ]
+        for pattern in navigation_exclusions:
+            if re.search(pattern, message):
+                return False  # Let rule-based handle navigation
+        
         # First check: Explicit analytics patterns (high confidence)
         for pattern in self.ANALYTICS_PATTERNS:
             if pattern.search(message):
@@ -794,9 +893,16 @@ class ChatbotOrchestrator:
             'my file', 'my upload', 'my storage', 'my doc', 'i upload', 'i have'
         ]
         
+        # Use word boundary matching to avoid false positives like 'ppl' in 'application'
         for keyword in data_keywords:
-            if keyword in message:
-                return True
+            # For multi-word keywords, just use substring match
+            if ' ' in keyword:
+                if keyword in message:
+                    return True
+            else:
+                # For single words, use word boundary to avoid substring matches
+                if re.search(r'\b' + re.escape(keyword) + r'\b', message):
+                    return True
         
         return False
     
@@ -836,34 +942,52 @@ class ChatbotOrchestrator:
                 return True
         return False
     
-    def _should_use_rule_based(self, message: str) -> bool:
+    def _is_help_query(self, message: str) -> bool:
         """
-        Smart hybrid routing:
-        1. If it looks like a question/info request → LLM
-        2. If it's an explicit navigation command → Rule-based
-        3. If it's a greeting → Rule-based
-        4. Everything else → LLM (let it understand intent)
+        Check if the message is asking for help/instructions.
+        
+        These should go to rule-based handler, NOT analytics or SQL.
+        Examples:
+        - "How do I upload a file?"
+        - "Where can I upload my file?"
+        - "Help with uploading"
         """
         message = message.strip()
         
-        # First check: Is this a DATA QUERY or ACTION?
+        for pattern in self.HELP_PATTERNS:
+            if pattern.search(message):
+                return True
+        return False
+    
+    def _should_use_rule_based(self, message: str) -> bool:
+        """
+        Smart hybrid routing:
+        1. If it's an explicit navigation command → Rule-based
+        2. If it's a data query → Rule-based
+        3. If it looks like a question/info request → LLM
+        4. If it's a greeting → Rule-based
+        5. Everything else → LLM (let it understand intent)
+        """
+        message = message.strip()
+        
+        # First check: Is this an explicit navigation command?
+        # Check this BEFORE information patterns to catch "where can i check logs" etc.
+        for pattern in self.EXPLICIT_NAVIGATION_PATTERNS:
+            if pattern.search(message):
+                return True  # Use rule-based
+        
+        # Second check: Is this a DATA QUERY or ACTION?
         # These should use rule-based (with real APIs)
-        # Check this BEFORE information patterns to catch "can i upload" etc.
         for pattern in self.DATA_QUERY_PATTERNS:
             if pattern.search(message):
                 return True  # Use rule-based (with real data)
         
-        # Second check: Is this an information/question request?
+        # Third check: Is this an information/question request?
         # If yes, use LLM for understanding
         for pattern in self.INFORMATION_PATTERNS:
             if pattern.search(message):
                 return False  # Use LLM
         
-        
-        # Third check: Is this an explicit navigation command?
-        for pattern in self.EXPLICIT_NAVIGATION_PATTERNS:
-            if pattern.search(message):
-                return True  # Use rule-based
         
         # Fourth check: Is this a simple greeting?
         for pattern in self.GREETING_PATTERNS:
@@ -929,12 +1053,12 @@ class ChatbotOrchestrator:
             }
         
         # =====================================================================
-        # PRIORITY -0.5: TYPO CORRECTION - Fix misspellings (~1ms)
+        # PRIORITY -0.5: INTELLIGENT TYPO CORRECTION - AI-powered (~1ms sync)
         # =====================================================================
         original_message = message
-        message, was_corrected = correct_query(message)
+        message, was_corrected = correct_query_intelligent(message)
         if was_corrected:
-            logger.info(f"[TYPO] Corrected: '{original_message}' → '{message}'")
+            logger.info(f"[TYPO] Intelligently corrected: '{original_message}' → '{message}'")
         
         # Get or create session
         session = self.session_manager.get_or_create_session(session_id, user_context)
@@ -954,10 +1078,31 @@ class ChatbotOrchestrator:
         # skip templates and go directly to Text-to-SQL LLM
         is_complex = self._is_complex_query(message)
         
+        # PRIORITY 0.05: HELP/HOW-TO QUERIES
+        # These should go to rule-based for help response, NOT analytics
+        # Check BEFORE text-to-sql and analytics
+        is_help_query = self._is_help_query(message)
+        if is_help_query:
+            routing_method = "rule_based_help"
+            logger.info(f"[HELP] Routing help query to rule-based: {message[:50]}...")
+            response = await self.rule_based.chat(
+                message=message,
+                history=session.history[:-1],
+                user_context=user_context,
+                system_prompt=chatbot_config.system_prompt
+            )
+        
+        # PRIORITY 0.1: TEXT-TO-SQL PATTERN DETECTION
+        # Check if query matches TEXT_TO_SQL patterns BEFORE analytics
+        # This prevents misrouting of complex queries to wrong analytics tools
+        needs_text_to_sql = self._should_use_text_to_sql(message) if response is None else False
+        if needs_text_to_sql:
+            logger.info(f"[ROUTE] Query matches TEXT_TO_SQL patterns, skipping analytics")
+        
         # PRIORITY 0.5: INFRASTRUCTURE/CONTAINER QUERIES
         # These should ALWAYS go to rule-based, never to SQL
-        is_infrastructure_query = self._is_infrastructure_query(message)
-        if is_infrastructure_query:
+        is_infrastructure_query = self._is_infrastructure_query(message) if response is None else False
+        if response is None and is_infrastructure_query:
             routing_method = "rule_based_infrastructure"
             logger.info(f"[INFRA] Routing to infrastructure handler: {message[:50]}...")
             response = await self.rule_based.chat(
@@ -967,10 +1112,22 @@ class ChatbotOrchestrator:
                 system_prompt=chatbot_config.system_prompt
             )
         
-        # PRIORITY 1: ANALYTICS - Fast Template SQL (~50-100ms)
-        # Check this FIRST because it's the most common and fastest
-        # But SKIP if query is complex (needs LLM-generated SQL)
-        if response is None and not is_complex and db and self._should_use_analytics(message):
+        # PRIORITY 1: TEXT-TO-SQL - For queries that match TEXT_TO_SQL patterns
+        # Run BEFORE analytics to get accurate results for complex cross-table queries
+        if response is None and needs_text_to_sql:
+            routing_method = "text_to_sql_llm"
+            logger.info(f"[SQL] Using Text-to-SQL LLM for pattern-matched query: {message[:50]}...")
+            try:
+                response = await self._handle_text_to_sql(message, user_context)
+                elapsed = int((time.time() - start_time) * 1000)
+                logger.info(f"[SQL] Text-to-SQL responded in {elapsed}ms")
+            except Exception as e:
+                logger.error(f"Text-to-SQL failed: {e}")
+                response = None  # Fall through to analytics
+        
+        # PRIORITY 2: ANALYTICS - Fast Template SQL (~50-100ms)
+        # Only for simple queries that don't match TEXT_TO_SQL patterns
+        if response is None and not is_complex and not needs_text_to_sql and db and self._should_use_analytics(message):
             routing_method = "analytics_template_sql"
             logger.info(f"[FAST] Using Analytics Engine for: {message[:50]}...")
             try:
@@ -982,7 +1139,7 @@ class ChatbotOrchestrator:
                 logger.warning(f"Analytics failed, will try fallback: {e}")
                 response = None  # Fall through to next handler
         
-        # PRIORITY 2: RULE-BASED - Navigation & Greetings (~1ms)
+        # PRIORITY 3: RULE-BASED - Navigation & Greetings (~1ms)
         if response is None and not is_complex and self._should_use_rule_based(message):
             routing_method = "rule_based"
             logger.debug(f"Using rule-based provider for: {message[:50]}...")
@@ -993,10 +1150,10 @@ class ChatbotOrchestrator:
                 system_prompt=chatbot_config.system_prompt
             )
         
-        # PRIORITY 3: TEXT-TO-SQL - Complex queries needing LLM (~30s)
-        # Use for complex queries OR queries that REALLY need dynamic SQL generation
-        if response is None and (is_complex or self._should_use_text_to_sql(message)):
-            routing_method = "text_to_sql_llm"
+        # PRIORITY 4: TEXT-TO-SQL FALLBACK - Complex queries needing LLM (~30s)
+        # For complex queries that weren't caught by patterns
+        if response is None and is_complex:
+            routing_method = "text_to_sql_llm_complex"
             logger.info(f"[SLOW] Using Text-to-SQL LLM for complex query: {message[:50]}...")
             try:
                 response = await self._handle_text_to_sql(message, user_context)
@@ -1006,7 +1163,7 @@ class ChatbotOrchestrator:
                 logger.error(f"Text-to-SQL failed: {e}")
                 response = None  # Fall through to LLM chat
         
-        # PRIORITY 4: LLM CHAT - General conversation
+        # PRIORITY 5: LLM CHAT - General conversation
         if response is None:
             routing_method = "llm_chat"
             logger.debug(f"Using LLM provider for: {message[:50]}...")
@@ -1021,6 +1178,17 @@ class ChatbotOrchestrator:
         session.add_message(MessageRole.ASSISTANT, response.message)
         
         elapsed_total = int((time.time() - start_time) * 1000)
+        
+        # =====================================================================
+        # SELF-HEALING: Monitor response quality (async, non-blocking)
+        # =====================================================================
+        if chatbot_config.self_healing_enabled:
+            asyncio.create_task(self._check_response_quality(
+                original_message=original_message,
+                response=response,
+                routing_method=routing_method,
+                user_context=user_context
+            ))
         
         return {
             "session_id": session.session_id,
@@ -1260,6 +1428,87 @@ class ChatbotOrchestrator:
         if session and session.user_id == user_id:
             return [msg.to_dict() for msg in session.history]
         return None
+    
+    # =========================================================================
+    # SELF-HEALING SYSTEM
+    # =========================================================================
+    
+    async def _check_response_quality(
+        self,
+        original_message: str,
+        response: ChatResponse,
+        routing_method: str,
+        user_context: UserContext
+    ):
+        """
+        Background task to check response quality and auto-fix errors.
+        Uses advanced self-healing to learn from mistakes and apply fixes.
+        """
+        try:
+            # Import advanced self-healing module
+            from .self_healing.advanced_healing import get_healer
+            
+            # Get or create self-healer (with auto_apply=True for automatic learning)
+            healer = get_healer(auto_apply=True)
+            
+            # Check the response and auto-fix if needed
+            actions = [a.to_dict() for a in response.actions] if response.actions else []
+            
+            fix_result = await healer.process_response(
+                user_query=original_message,
+                response=response.message,
+                routing_method=routing_method,
+                actions=actions
+            )
+            
+            if fix_result:
+                if fix_result.success:
+                    logger.info(f"[SELF-HEAL] ✅ Auto-fixed: {fix_result.message}")
+                else:
+                    logger.warning(f"[SELF-HEAL] ⏳ Pending review: {fix_result.message}")
+                    
+        except Exception as e:
+            logger.debug(f"Self-healing check failed (non-critical): {e}")
+    
+    def get_healer_stats(self) -> Dict[str, Any]:
+        """Get self-healing statistics."""
+        try:
+            from .self_healing.advanced_healing import get_healer
+            return get_healer().get_stats()
+        except:
+            return {}
+    
+    def get_pending_fixes(self) -> List[Dict]:
+        """Get all pending fixes from self-healing system."""
+        try:
+            from .self_healing.advanced_healing import get_healer
+            return get_healer().get_pending_fixes()
+        except:
+            return []
+    
+    def approve_fix(self, fix_index: int) -> bool:
+        """Approve and apply a pending fix."""
+        try:
+            from .self_healing.advanced_healing import get_healer
+            return get_healer().approve_pending_fix(fix_index)
+        except:
+            return False
+    
+    def check_learned_exclusions(self, message: str) -> bool:
+        """Check if message matches any learned exclusion pattern."""
+        try:
+            from .self_healing.advanced_healing import get_healer
+            return get_healer().check_exclusion_patterns(message)
+        except:
+            return False
+    
+    def check_learned_navigation(self, message: str) -> Optional[str]:
+        """Check if message matches any learned navigation pattern."""
+        try:
+            from .self_healing.advanced_healing import get_healer
+            return get_healer().check_navigation_patterns(message)
+        except:
+            return None
 
 
 # Singleton orchestrator instance

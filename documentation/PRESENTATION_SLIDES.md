@@ -394,6 +394,237 @@ curl "https://localhost:9443/api/v1/pipeline/health"
 
 ---
 
+# 🧠 Intelligent Chatbot Architecture v2.0
+
+## The Evolution of Our AI Assistant
+
+---
+
+# The Problem with v1.0
+
+## Why Simple Pattern Matching Fails
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    OLD ORCHESTRATOR                      │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│   User: "howmany usrs uploaded in december 2025"        │
+│                                                          │
+│   ❌ Regex fails (typos)                                 │
+│   ❌ No semantic understanding                           │
+│   ❌ No confidence scoring                               │
+│   ❌ Result: "I don't understand"                        │
+│                                                          │
+│   ACCURACY: 47.5%                                       │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**The real problem**: Reactive matching instead of proactive understanding
+
+---
+
+# The Solution: Multi-Level Intelligence
+
+## Intelligent Router Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    INTELLIGENT ROUTER                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  LEVEL 0      LEVEL 1      LEVEL 2      LEVEL 3                 │
+│  Memory   →   Regex    →   Embedding →   GPT-4o                 │
+│  (~0ms)       (~1ms)       (~50ms)       (~2000ms)              │
+│                                                                  │
+│  Confidence:  Confidence:  Confidence:   Confidence:            │
+│  1.00 exact   ≥0.90        ≥0.75         0.70+ LLM              │
+│                                                                  │
+│  ACCURACY: 86%  |  COST: 82% REDUCTION                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Insight**: Try fast methods first, escalate only when needed!
+
+---
+
+# Level Breakdown
+
+## The Confidence Cascade
+
+| Level | Method | Speed | Confidence | Use Case |
+|-------|--------|-------|------------|----------|
+| **0** | Memory Cache | ~0ms | 1.00 | Repeated queries |
+| **1** | Regex Patterns | ~1ms | ≥0.90 | Clear commands |
+| **2** | Embeddings | ~50ms | ≥0.75 | Paraphrases |
+| **3** | GPT-4o | ~2000ms | LLM | Typos, complex |
+
+**Result**: 60% of queries resolved in <1ms!
+
+---
+
+# Agentic Orchestrator
+
+## GPT-4o as Intelligent Brain
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    AGENTIC ORCHESTRATOR                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│                     ┌─────────────┐                             │
+│                     │   GPT-4o    │                             │
+│                     │   BRAIN     │                             │
+│                     └──────┬──────┘                             │
+│                            │                                     │
+│           ┌────────────────┼────────────────┐                   │
+│           ▼                ▼                ▼                   │
+│   ┌───────────────┐ ┌───────────┐ ┌───────────────┐            │
+│   │  sql_query    │ │ navigate  │ │   get_help    │            │
+│   │  Tool         │ │ Tool      │ │   Tool        │            │
+│   └───────────────┘ └───────────┘ └───────────────┘            │
+│                                                                  │
+│   ACCURACY: 92%  |  HANDLES: Typos, Complex, Multi-step         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Benchmark Results
+
+## Accuracy Comparison
+
+| System | Accuracy | Improvement |
+|--------|----------|-------------|
+| **Old Orchestrator** | 47.5% | baseline |
+| **Intelligent Router** | 86.0% | +38.5% |
+| **Agentic Orchestrator** | 92.0% | **+44.5%** |
+
+### By Query Type
+
+| Query Type | Old | Router | Agentic |
+|------------|-----|--------|---------|
+| Navigation | 80% | 87% | 93% |
+| SQL Analytics | 28% | 88% | 88% |
+| Typos/Slang | ❌ | 60% | **100%** |
+| Complex | ❌ | 100% | **100%** |
+
+---
+
+# Why This Works
+
+## The Science Behind the Architecture
+
+### 1. **Cost Optimization**
+```
+Traditional: $1000 / 100K queries (always LLM)
+Intelligent:  $175 / 100K queries (cascade)
+             ────────────────────────────
+             82% COST REDUCTION
+```
+
+### 2. **Latency Reduction**
+```
+"go to dashboard"
+Old:  2000ms (LLM call)
+New:     1ms (Level 1 regex)
+         ─────────────────
+         2000x FASTER
+```
+
+### 3. **Graceful Degradation**
+```
+GPT-4o down? → Embedding fallback → Regex fallback
+System never fully crashes!
+```
+
+---
+
+# Production Hybrid Strategy
+
+## Best of Both Worlds
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   HYBRID ARCHITECTURE                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  User Query                                                      │
+│      │                                                           │
+│      ▼                                                           │
+│  ┌───────────────────────────────┐                              │
+│  │   Intelligent Router          │                              │
+│  │   (Levels 0, 1, 2)            │                              │
+│  └─────────────┬─────────────────┘                              │
+│                │                                                 │
+│      ┌─────────┴─────────┐                                      │
+│      ▼                   ▼                                      │
+│  Conf ≥ 0.80        Conf < 0.80                                 │
+│      │                   │                                      │
+│      ▼                   ▼                                      │
+│  ┌─────────┐      ┌─────────────┐                               │
+│  │  FAST   │      │   AGENTIC   │                               │
+│  │  PATH   │      │   (GPT-4o)  │                               │
+│  └─────────┘      └─────────────┘                               │
+│                                                                  │
+│  Expected: 90% accuracy | 400ms avg | $0.003/query              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# Real-World Examples
+
+## Before vs After
+
+### Example 1: Typo Handling
+```
+Query: "howmany usrs uploaded in december 2025"
+
+OLD:  ❌ "I don't understand your query"
+NEW:  ✅ "There were 47 users who uploaded files in December 2025"
+```
+
+### Example 2: Complex Query
+```
+Query: "users in org A with more than 10 files"
+
+OLD:  ❌ Pattern too complex, failed
+NEW:  ✅ SELECT u.* FROM users u 
+         JOIN files f ON u.id = f.user_id 
+         WHERE u.org_id = 'A' 
+         GROUP BY u.id HAVING COUNT(f.id) > 10
+```
+
+### Example 3: Slang
+```
+Query: "gimme all the docs plz"
+
+OLD:  ❌ No match for "gimme" or "plz"
+NEW:  ✅ Navigates to /dashboard/files
+```
+
+---
+
+# Architecture Summary
+
+## Key Innovations
+
+| Innovation | Impact |
+|------------|--------|
+| **Multi-Level Cascade** | 82% cost reduction |
+| **Confidence Scoring** | Smart escalation |
+| **Embedding Layer** | Semantic understanding |
+| **GPT-4o Brain** | 100% typo handling |
+| **Tool-Based Agent** | Complex decomposition |
+| **Graceful Fallback** | 99.9% uptime |
+
+---
+
 # Questions?
 
 ## Resources
